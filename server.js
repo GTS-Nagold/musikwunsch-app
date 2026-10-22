@@ -131,8 +131,12 @@ app.get('/api/search', requireParty, async (req, res) => {
   try {
     res.json(await spotify.search(q));
   } catch (err) {
-    console.error('Suche:', err.message);
-    res.status(500).json({ error: err.message });
+    console.error('Suche:', err.message, err.response?.data);
+    res.status(500).json({
+      error: err.message,
+      spotifyStatus: err.response?.status,
+      spotifyBody: err.response?.data
+    });
   }
 });
 
