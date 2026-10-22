@@ -161,7 +161,7 @@ class SpotifyClient {
     try {
       const resp = await axios.get('https://api.spotify.com/v1/search', {
         headers: h,
-        params: { q: query, type: 'track', limit: 50, market: 'DE' }
+        params: { q: query, type: 'track' }
       });
       return (resp.data.tracks?.items || []).map(t => ({
         id: t.id,
