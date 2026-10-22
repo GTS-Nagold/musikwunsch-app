@@ -51,7 +51,7 @@ function requireParty(req, res, next) {
 }
 
 function requireAdmin(req, res, next) {
-  const pwd = req.headers['x-admin-password'] || req.body?.adminPassword;
+  const pwd = req.headers['x-admin-password'] || req.body?.adminPassword || req.query?.pw;
   if (pwd !== process.env.ADMIN_PASSWORD) {
     return res.status(401).json({ error: 'Falsches Admin-Passwort.' });
   }
