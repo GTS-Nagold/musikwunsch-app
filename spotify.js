@@ -14,6 +14,9 @@ class SpotifyClient {
     this.refreshToken = process.env.SPOTIFY_REFRESH_TOKEN || null;
     this._queueCache = null;
     this._queueCacheTime = 0;
+    // App-Token (Client Credentials – kein User nötig, für Playlist-Tracks)
+    this._appToken = null;
+    this._appTokenExpiry = 0;
     this._loadTokens();
   }
 
@@ -82,6 +85,22 @@ class SpotifyClient {
     return { Authorization: `Bearer ${this.accessToken}` };
   }
 
+  // App-Token via Client Credentials – kein User-Login nötig
+  // Funktioniert für öffentliche Playlists ohne Development-Mode-Einschränkungen
+  async _appHeaders() {
+    if (!this._appToken || Date.now() > this._appTokenExpiry) {
+      const resp = await axios.post(
+        'https://accounts.spotify.com/api/token',
+        new URLSearchParams({ grant_type: 'client_credentials' }),
+        { headers: { 'Content-Type': 'application/x-www-form-urlencoded', Authorization: this._basicAuth() } }
+      );
+      this._appToken = resp.data.access_token;
+      this._appTokenExpiry = Date.now() + (resp.data.expires_in - 60) * 1000;
+      console.log('✅ Spotify App-Token erneuert (Client Credentials)');
+    }
+    return { Authorization: `Bearer ${this._appToken}` };
+  }
+
   isConnected() {
     return !!(this.refreshToken || this.accessToken);
   }
@@ -131,9 +150,20 @@ class SpotifyClient {
   }
 
   async getPlaylistTracks(playlistId) {
-    const h = await this._headers();
+    // Erst App-Token versuchen (Client Credentials, keine User-Einschränkungen)
+    // Bei 401/403 Fallback auf User-Token (für private eigene Playlists)
+    let h;
+    try {
+      h = await this._appHeaders();
+    } catch (e) {
+      console.warn('App-Token fehlgeschlagen, nutze User-Token:', e.message);
+      h = await this._headers();
+    }
+
     let url = `https://api.spotify.com/v1/playlists/${encodeURIComponent(playlistId)}/tracks`;
     const tracks = [];
+    let usedFallback = false;
+
     while (url) {
       try {
         const resp = await axios.get(url, { headers: h });
@@ -147,8 +177,18 @@ class SpotifyClient {
         })));
         url = resp.data.next;
       } catch (err) {
-        const spotifyMsg = err.response?.data?.error?.message;
         const status = err.response?.status;
+        const spotifyMsg = err.response?.data?.error?.message;
+
+        // Bei 401/403 mit App-Token: Fallback auf User-Token (private Playlist)
+        if ((status === 401 || status === 403) && !usedFallback) {
+          console.log(`App-Token 403 für ${playlistId}, versuche User-Token...`);
+          usedFallback = true;
+          h = await this._headers();
+          url = `https://api.spotify.com/v1/playlists/${encodeURIComponent(playlistId)}/tracks`;
+          continue;
+        }
+
         console.error(`Spotify Track-Fehler ${status} für Playlist ${playlistId}:`, spotifyMsg || err.message);
         throw new Error(spotifyMsg ? `Spotify: ${spotifyMsg}` : `Playlist konnte nicht geladen werden (${status})`);
       }
@@ -217,10 +257,10 @@ class SpotifyClient {
   }
 
   async debugPlaylist(playlistId) {
-    const h = await this._headers();
-    const url = `https://api.spotify.com/v1/playlists/${encodeURIComponent(playlistId)}/tracks?limit=1`;
+    const h = await this._appHeaders();
+    const url = `https://api.spotify.com/v1/playlists/${encodeURIComponent(playlistId)}/tracks`;
     const resp = await axios.get(url, { headers: h });
-    return { status: 200, items: resp.data.items?.length, total: resp.data.total };
+    return { status: 200, tokenType: 'client_credentials', items: resp.data.items?.length, total: resp.data.total };
   }
 }
 
