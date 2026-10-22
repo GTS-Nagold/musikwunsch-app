@@ -132,8 +132,8 @@ class SpotifyClient {
 
   async getPlaylistTracks(playlistId) {
     const h = await this._headers();
-    let url = `https://api.spotify.com/v1/playlists/${playlistId}/tracks?limit=100` +
-              `&fields=next,items(track(id,uri,name,artists(name),album(images)))`;
+    // Kein fields-Parameter – Spotify blockt manchmal eingeschränkte Felder
+    let url = `https://api.spotify.com/v1/playlists/${playlistId}/tracks?limit=100`;
     const tracks = [];
     while (url) {
       const resp = await axios.get(url, { headers: h });
@@ -142,7 +142,7 @@ class SpotifyClient {
         id: i.track.id,
         uri: i.track.uri,
         name: i.track.name,
-        artist: i.track.artists.map(a => a.name).join(', '),
+        artist: (i.track.artists || []).map(a => a.name).join(', '),
         image: i.track.album?.images?.[2]?.url || i.track.album?.images?.[0]?.url || null
       })));
       url = resp.data.next;
@@ -152,17 +152,25 @@ class SpotifyClient {
 
   async search(query) {
     const h = await this._headers();
-    const resp = await axios.get('https://api.spotify.com/v1/search', {
-      headers: h,
-      params: { q: query, type: 'track', limit: 20 }
-    });
-    return (resp.data.tracks?.items || []).map(t => ({
-      id: t.id,
-      uri: t.uri,
-      name: t.name,
-      artist: t.artists.map(a => a.name).join(', '),
-      image: t.album?.images?.[2]?.url || t.album?.images?.[0]?.url || null
-    }));
+    try {
+      const resp = await axios.get('https://api.spotify.com/v1/search', {
+        headers: h,
+        params: { q: query, type: 'track', limit: 20 }
+      });
+      return (resp.data.tracks?.items || []).map(t => ({
+        id: t.id,
+        uri: t.uri,
+        name: t.name,
+        artist: (t.artists || []).map(a => a.name).join(', '),
+        image: t.album?.images?.[2]?.url || t.album?.images?.[0]?.url || null
+      }));
+    } catch (err) {
+      // Spotify-Fehlermeldung weitergeben für besseres Debugging
+      const spotifyMsg = err.response?.data?.error?.message;
+      const status = err.response?.status;
+      console.error(`Spotify Suche Fehler ${status}:`, spotifyMsg || err.message, '| Query:', query);
+      throw new Error(spotifyMsg ? `Spotify: ${spotifyMsg}` : `Suche fehlgeschlagen (${status})`);
+    }
   }
 
   async getQueue() {

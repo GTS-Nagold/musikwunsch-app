@@ -503,7 +503,7 @@ async function loadPlaylists() {
           ${img}
           <div class="playlist-info">
             <div class="playlist-name">${esc(pl.name)}</div>
-            <div class="playlist-count">${pl.trackCount} Songs</div>
+            <div class="playlist-count">${pl.trackCount > 0 ? pl.trackCount + ' Songs' : 'Tippe zum Laden'}</div>
           </div>
           <span class="playlist-arrow">›</span>
         </div>
