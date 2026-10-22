@@ -329,7 +329,9 @@ app.get('/admin/status', requireAdmin, async (req, res) => {
 // Party starten
 app.post('/admin/party/start', requireAdmin, (req, res) => {
   const { name, durationHours, sessionDurationMinutes } = req.body;
-  const token = crypto.randomBytes(3).toString('hex');
+  // Fester Token aus ENV → QR-Code bleibt immer gleich
+  // Fallback: zufällig generiert (wenn PARTY_TOKEN nicht gesetzt)
+  const token = process.env.PARTY_TOKEN || crypto.randomBytes(3).toString('hex');
   activeParty = {
     token,
     name: (name || 'Party').trim(),
