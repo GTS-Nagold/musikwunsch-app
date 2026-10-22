@@ -96,7 +96,7 @@ class SpotifyClient {
   }
 
   async search(query) {
-    const url = `https://api.spotify.com/v1/search?q=${encodeURIComponent(query)}&type=track&limit=20`;
+    const url = `https://api.spotify.com/v1/search?q=${encodeURIComponent(query)}&type=track&limit=10`;
     const resp = await axios.get(url, {
       headers: await this._headers()
     });
