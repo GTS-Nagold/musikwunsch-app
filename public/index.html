@@ -631,11 +631,13 @@ function loadPlaylists() {
         if (dance.id) {
           // Kuratierte Liste aus Excel-Export
           songs = await api(`/api/dance/${dance.id}/songs`);
+          songs.sort((a, b) => a.title.localeCompare(b.title, 'de', { sensitivity: 'base' }));
           trackList.innerHTML = '';
           songs.forEach(s => trackList.appendChild(makeCuratedTrackCard(s)));
         } else {
           // Fallback: Spotify-Suche (Quickstep, Paso Doble etc.)
           songs = await api(`/api/search?q=${encodeURIComponent(dance.query)}`);
+          songs.sort((a, b) => a.name.localeCompare(b.name, 'de', { sensitivity: 'base' }));
           trackList.innerHTML = '';
           songs.forEach(t => trackList.appendChild(makeTrackCard(t)));
         }
