@@ -150,50 +150,62 @@ class SpotifyClient {
   }
 
   async getPlaylistTracks(playlistId) {
-    // Erst App-Token versuchen (Client Credentials, keine User-Einschränkungen)
-    // Bei 401/403 Fallback auf User-Token (für private eigene Playlists)
-    let h;
-    try {
-      h = await this._appHeaders();
-    } catch (e) {
-      console.warn('App-Token fehlgeschlagen, nutze User-Token:', e.message);
-      h = await this._headers();
-    }
+    // /playlists/{id}/tracks ist in Spotify Development Mode blockiert (403)
+    // Lösung: Basis-Endpoint /playlists/{id} nutzen – gibt tracks.items zurück
+    // Für öffentliche Playlists: App-Token (Client Credentials)
+    // Für private/eigene Playlists: User-Token als Fallback
 
-    let url = `https://api.spotify.com/v1/playlists/${encodeURIComponent(playlistId)}/tracks`;
-    const tracks = [];
-    let usedFallback = false;
+    const extractTracks = (items) =>
+      (items || []).filter(i => i.track?.id && !i.track.is_local).map(i => ({
+        id: i.track.id,
+        uri: i.track.uri,
+        name: i.track.name,
+        artist: (i.track.artists || []).map(a => a.name).join(', '),
+        image: i.track.album?.images?.[2]?.url || i.track.album?.images?.[0]?.url || null
+      }));
 
-    while (url) {
-      try {
-        const resp = await axios.get(url, { headers: h });
-        const items = (resp.data.items || []).filter(i => i.track?.id && !i.track.is_local);
-        tracks.push(...items.map(i => ({
-          id: i.track.id,
-          uri: i.track.uri,
-          name: i.track.name,
-          artist: (i.track.artists || []).map(a => a.name).join(', '),
-          image: i.track.album?.images?.[2]?.url || i.track.album?.images?.[0]?.url || null
-        })));
-        url = resp.data.next;
-      } catch (err) {
-        const status = err.response?.status;
-        const spotifyMsg = err.response?.data?.error?.message;
+    const fetchBase = async (h) => {
+      const resp = await axios.get(
+        `https://api.spotify.com/v1/playlists/${encodeURIComponent(playlistId)}`,
+        { headers: h }
+      );
+      const tracks = extractTracks(resp.data.tracks?.items);
 
-        // Bei 401/403 mit App-Token: Fallback auf User-Token (private Playlist)
-        if ((status === 401 || status === 403) && !usedFallback) {
-          console.log(`App-Token 403 für ${playlistId}, versuche User-Token...`);
-          usedFallback = true;
-          h = await this._headers();
-          url = `https://api.spotify.com/v1/playlists/${encodeURIComponent(playlistId)}/tracks`;
-          continue;
+      // Weitere Seiten versuchen (oft auch blockiert, dann graceful abbrechen)
+      let nextUrl = resp.data.tracks?.next;
+      while (nextUrl) {
+        try {
+          const page = await axios.get(nextUrl, { headers: h });
+          tracks.push(...extractTracks(page.data.items));
+          nextUrl = page.data.next;
+        } catch {
+          console.log(`Pagination für ${playlistId} bei ${tracks.length} Tracks gestoppt`);
+          break;
         }
-
-        console.error(`Spotify Track-Fehler ${status} für Playlist ${playlistId}:`, spotifyMsg || err.message);
-        throw new Error(spotifyMsg ? `Spotify: ${spotifyMsg}` : `Playlist konnte nicht geladen werden (${status})`);
       }
+      return tracks;
+    };
+
+    // 1. Versuch: App-Token (für öffentliche Playlisten)
+    try {
+      const h = await this._appHeaders();
+      return await fetchBase(h);
+    } catch (err) {
+      const status = err.response?.status;
+      // 404 = private Playlist, nicht sichtbar für App-Token → User-Token
+      if (status === 404 || status === 401 || status === 403) {
+        console.log(`App-Token ${status} für ${playlistId}, versuche User-Token...`);
+        try {
+          const h = await this._headers();
+          return await fetchBase(h);
+        } catch (err2) {
+          const msg = err2.response?.data?.error?.message;
+          throw new Error(msg ? `Spotify: ${msg}` : `Playlist konnte nicht geladen werden`);
+        }
+      }
+      const msg = err.response?.data?.error?.message;
+      throw new Error(msg ? `Spotify: ${msg}` : `Playlist konnte nicht geladen werden (${status})`);
     }
-    return tracks;
   }
 
   async search(query) {
