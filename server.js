@@ -2,7 +2,19 @@ require('dotenv').config();
 const express = require('express');
 const crypto = require('crypto');
 const path = require('path');
+const fs = require('fs');
 const SpotifyClient = require('./spotify');
+
+// ── Kuratierte Songlisten (aus Spotify-Export) ──────────────────────────────
+const SONGS_DB_PATH = path.join(__dirname, 'data', 'songs.json');
+let songsDb = {};
+try {
+  songsDb = JSON.parse(fs.readFileSync(SONGS_DB_PATH, 'utf8'));
+  const total = Object.values(songsDb).reduce((s, arr) => s + arr.length, 0);
+  console.log(`✅ Songlisten geladen: ${Object.keys(songsDb).length} Tanzstile, ${total} Songs`);
+} catch (e) {
+  console.warn('⚠️ songs.json nicht gefunden – kuratierte Listen nicht verfügbar');
+}
 
 const app = express();
 app.use(express.json());
@@ -153,6 +165,62 @@ app.get('/api/search', requireParty, async (req, res) => {
   } catch (err) {
     console.error('Such-Fehler:', err.message);
     res.status(500).json({ error: err.message });
+  }
+});
+
+// Kuratierte Songs eines Tanzstils (aus Excel-Export)
+app.get('/api/dance/:id/songs', requireParty, (req, res) => {
+  const id = req.params.id;
+  const songs = songsDb[id];
+  if (!songs) return res.status(404).json({ error: 'Tanzstil nicht gefunden' });
+  // Maximal 60 Songs pro Anfrage (shuffled beim Start, also immer andere Reihenfolge)
+  res.json(songs.slice(0, 60));
+});
+
+// Song per Name wünschen (kein URI nötig – Backend sucht Spotify selbst)
+app.post('/api/wish-by-name', requireParty, async (req, res) => {
+  const { title, artist, sessionId } = req.body;
+  if (!title || !sessionId) return res.status(400).json({ error: 'Fehlende Parameter.' });
+
+  // Cooldown prüfen
+  const lastWish = guestCooldowns.get(sessionId);
+  if (lastWish && Date.now() - lastWish < COOLDOWN_MS) {
+    const remaining = Math.ceil((COOLDOWN_MS - (Date.now() - lastWish)) / 1000);
+    return res.status(429).json({ error: `Bitte noch ${remaining} Sekunden warten.`, remaining });
+  }
+
+  try {
+    // Spotify-Suche: Titel + Artist
+    const q = artist ? `${title} ${artist}` : title;
+    const results = await spotify.search(q);
+    if (!results.length) {
+      return res.status(404).json({ error: 'Song auf Spotify nicht gefunden.' });
+    }
+    const track = results[0];
+
+    // Duplikat prüfen
+    const duplicate = await spotify.isInQueue(track.uri);
+    if (duplicate) {
+      return res.status(409).json({ error: 'Dieser Song steht schon in der Queue. 🎵' });
+    }
+
+    await spotify.addToQueue(track.uri);
+    guestCooldowns.set(sessionId, Date.now());
+
+    if (guestCooldowns.size > 2000) {
+      const cutoff = Date.now() - COOLDOWN_MS;
+      for (const [id, ts] of guestCooldowns) {
+        if (ts < cutoff) guestCooldowns.delete(id);
+      }
+    }
+
+    res.json({ success: true, matched: { name: track.name, artist: track.artist } });
+  } catch (err) {
+    console.error('Wish-by-name Fehler:', err.message);
+    const msg = err.response?.status === 404
+      ? 'Keine aktive Wiedergabe. Bitte Musik auf dem Tanzschul-Gerät starten.'
+      : err.message;
+    res.status(500).json({ error: msg });
   }
 });
 

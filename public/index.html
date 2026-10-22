@@ -479,33 +479,85 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
   });
 });
 
-// ── Tanzstil-Liste (fest eingebaut, kein API-Call nötig) ──────────────────────
+// ── Tanzstil-Liste ────────────────────────────────────────────────────────────
+// id = Schlüssel in data/songs.json; ohne id → Spotify-Suche als Fallback
 const DANCE_LIST = [
-  { name: 'Walzer',          query: 'Langsamer Walzer',   emoji: '🩰' },
-  { name: 'Wiener Walzer',   query: 'Wiener Walzer',      emoji: '💃' },
-  { name: 'Tango',           query: 'Tango',              emoji: '🌹' },
-  { name: 'Quickstep',       query: 'Quickstep',          emoji: '⚡' },
-  { name: 'Foxtrott',        query: 'Slowfox Foxtrott',   emoji: '🦊' },
-  { name: 'Samba',           query: 'Samba',              emoji: '🥁' },
-  { name: 'Cha Cha',         query: 'Cha Cha',            emoji: '💫' },
-  { name: 'Rumba',           query: 'Rumba',              emoji: '❤️' },
-  { name: 'Paso Doble',      query: 'Paso Doble',         emoji: '🎺' },
-  { name: 'Jive',            query: 'Jive',               emoji: '🎸' },
-  { name: 'Discofox',        query: 'Discofox',           emoji: '🪩' },
-  { name: 'Bachata',         query: 'Bachata',            emoji: '🎵' },
-  { name: 'Salsa',           query: 'Salsa',              emoji: '🌶️' },
-  { name: 'Merengue',        query: 'Merengue',           emoji: '🎶' },
-  { name: 'Lindy Hop',       query: 'Lindy Hop Swing',    emoji: '🎷' },
-  { name: 'West Coast Swing',query: 'West Coast Swing',   emoji: '🤠' },
-  { name: 'Kizomba',         query: 'Kizomba',            emoji: '🌙' },
-  { name: 'Zouk',            query: 'Brazilian Zouk',     emoji: '🌊' },
+  { id: 'walzer',           name: 'Walzer',           emoji: '🩰' },
+  { id: 'wiener-walzer',    name: 'Wiener Walzer',    emoji: '💃' },
+  { id: 'tango',            name: 'Tango',            emoji: '🌹' },
+  { id: null,               name: 'Quickstep',        emoji: '⚡', query: 'Quickstep' },
+  { id: 'foxtrott',         name: 'Foxtrott',         emoji: '🦊' },
+  { id: 'slowfox',          name: 'Slowfox',          emoji: '🌙' },
+  { id: 'samba',            name: 'Samba',            emoji: '🥁' },
+  { id: 'cha-cha',          name: 'Cha Cha',          emoji: '💫' },
+  { id: 'rumba',            name: 'Rumba',            emoji: '❤️' },
+  { id: null,               name: 'Paso Doble',       emoji: '🎺', query: 'Paso Doble' },
+  { id: 'jive',             name: 'Jive',             emoji: '🎸' },
+  { id: 'discofox',         name: 'Discofox',         emoji: '🪩' },
+  { id: 'bachata',          name: 'Bachata',          emoji: '🎵' },
+  { id: 'salsa',            name: 'Salsa',            emoji: '🌶️' },
+  { id: 'lindy-hop',        name: 'Lindy Hop',        emoji: '🎷' },
+  { id: 'blues',            name: 'Blues',            emoji: '🎺' },
+  { id: 'boogie',           name: 'Boogie',           emoji: '🎸' },
 ];
 
-// ── Tanzstile aufbauen (statisch, keine API) ──────────────────────────────────
+// ── Kuratierte Track-Karte (kein URI – Wunsch läuft über Titel+Artist) ────────
+function makeCuratedTrackCard(song) {
+  const div = document.createElement('div');
+  div.className = 'track-card';
+  div.innerHTML = `
+    <div class="track-img-placeholder">🎵</div>
+    <div class="track-info">
+      <div class="track-name">${esc(song.title)}</div>
+      <div class="track-artist">${esc(song.artist)}</div>
+    </div>
+    <button class="wish-btn">♡ Wünschen</button>
+  `;
+  div.querySelector('.wish-btn').addEventListener('click', e => wishByName(e.currentTarget, song));
+  return div;
+}
+
+// ── Song per Titel+Artist wünschen ────────────────────────────────────────────
+async function wishByName(btn, song) {
+  const remaining = Math.ceil((cooldownUntil - Date.now()) / 1000);
+  if (remaining > 0) { showToast(`Noch ${remaining}s warten ⏳`, 'warning'); return; }
+
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>';
+
+  try {
+    const result = await api('/api/wish-by-name', {
+      method: 'POST',
+      body: JSON.stringify({ title: song.title, artist: song.artist, sessionId: SESSION_ID })
+    });
+    btn.className = 'wish-btn done';
+    btn.textContent = '✓ Gewünscht!';
+    const matched = result.matched ? ` (${result.matched.name})` : '';
+    showToast(`🎵 Wunsch gesendet!${matched} Nächster in 60s.`, 'success', 4000);
+    cooldownUntil = Date.now() + 60_000;
+    startCooldownTimer();
+  } catch (err) {
+    btn.disabled = false;
+    if (err.status === 429) {
+      const rem = err.data?.remaining || 60;
+      btn.className = 'wish-btn cooldown';
+      btn.textContent = `⏳ ${rem}s`;
+      cooldownUntil = Date.now() + rem * 1000;
+      startCooldownTimer();
+      showToast(err.message, 'warning');
+    } else {
+      btn.className = 'wish-btn';
+      btn.textContent = '♡ Wünschen';
+      showToast(err.message || 'Fehler', 'error', 5000);
+    }
+  }
+}
+
+// ── Tanzstile aufbauen ────────────────────────────────────────────────────────
 function loadPlaylists() {
   const container = document.getElementById('playlists-container');
   container.innerHTML = '';
-  let openItem = null; // immer nur ein Tanzstil offen
+  let openItem = null;
 
   DANCE_LIST.forEach(dance => {
     const item = document.createElement('div');
@@ -515,7 +567,7 @@ function loadPlaylists() {
         <div class="dance-emoji">${dance.emoji}</div>
         <div class="dance-info">
           <div class="dance-name">${esc(dance.name)}</div>
-          <div class="dance-sub">Antippen → Songs laden</div>
+          <div class="dance-sub">Antippen → Songs anzeigen</div>
         </div>
         <span class="dance-arrow">›</span>
       </div>
@@ -529,41 +581,35 @@ function loadPlaylists() {
 
     header.addEventListener('click', async () => {
       const isOpen = item.classList.contains('open');
-
-      // Anderen schließen
-      if (openItem && openItem !== item) {
-        openItem.classList.remove('open');
-      }
-
-      if (isOpen) {
-        item.classList.remove('open');
-        openItem = null;
-        return;
-      }
-
+      if (openItem && openItem !== item) openItem.classList.remove('open');
+      if (isOpen) { item.classList.remove('open'); openItem = null; return; }
       item.classList.add('open');
       openItem = item;
 
-      // Noch nicht geladen → Suche starten
-      if (!loaded) {
-        loaded = true;
-        sub.textContent = 'Lade Songs…';
-        trackList.innerHTML = '<div class="track-loading"><span class="spinner" style="border-color:rgba(47,61,124,.3);border-top-color:var(--blue)"></span></div>';
-        try {
-          const tracks = await api(`/api/search?q=${encodeURIComponent(dance.query)}`);
+      if (loaded) return;
+      loaded = true;
+      sub.textContent = 'Lade Songs…';
+      trackList.innerHTML = '<div class="track-loading"><span class="spinner" style="border-color:rgba(47,61,124,.3);border-top-color:var(--blue)"></span></div>';
+
+      try {
+        let songs;
+        if (dance.id) {
+          // Kuratierte Liste aus Excel-Export
+          songs = await api(`/api/dance/${dance.id}/songs`);
           trackList.innerHTML = '';
-          if (!tracks.length) {
-            trackList.innerHTML = '<div class="track-loading">Keine Ergebnisse gefunden.</div>';
-            sub.textContent = '0 Songs';
-            return;
-          }
-          tracks.forEach(t => trackList.appendChild(makeTrackCard(t)));
-          sub.textContent = `${tracks.length} Songs`;
-        } catch (err) {
-          trackList.innerHTML = `<div class="track-loading" style="color:var(--error)">${esc(err.message)}</div>`;
-          sub.textContent = 'Fehler beim Laden';
-          loaded = false; // retry beim nächsten Öffnen
+          songs.forEach(s => trackList.appendChild(makeCuratedTrackCard(s)));
+        } else {
+          // Fallback: Spotify-Suche (Quickstep, Paso Doble etc.)
+          songs = await api(`/api/search?q=${encodeURIComponent(dance.query)}`);
+          trackList.innerHTML = '';
+          songs.forEach(t => trackList.appendChild(makeTrackCard(t)));
         }
+        sub.textContent = songs.length ? `${songs.length} Songs` : 'Keine Songs gefunden';
+        if (!songs.length) trackList.innerHTML = '<div class="track-loading">Keine Songs gefunden.</div>';
+      } catch (err) {
+        trackList.innerHTML = `<div class="track-loading" style="color:var(--error)">${esc(err.message)}</div>`;
+        sub.textContent = 'Fehler';
+        loaded = false;
       }
     });
 
