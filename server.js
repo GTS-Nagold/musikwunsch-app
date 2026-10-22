@@ -202,6 +202,26 @@ app.post('/api/wish', requireParty, async (req, res) => {
   }
 });
 
+// ── Debug (temporär) ─────────────────────────────────────────────────────────
+app.get('/admin/debug-spotify', requireAdmin, async (req, res) => {
+  try {
+    const headers = await spotify._headers();
+    const axios = require('axios');
+    const result = await axios.get('https://api.spotify.com/v1/search', {
+      headers,
+      params: { q: 'test', type: 'track', limit: 1 }
+    });
+    res.json({ ok: true, status: result.status, first: result.data?.tracks?.items?.[0]?.name });
+  } catch (err) {
+    res.json({
+      ok: false,
+      axiosMessage: err.message,
+      spotifyStatus: err.response?.status,
+      spotifyBody: err.response?.data
+    });
+  }
+});
+
 // ── Admin-API ────────────────────────────────────────────────────────────────
 
 app.get('/admin/status', requireAdmin, async (req, res) => {
