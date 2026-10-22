@@ -344,6 +344,20 @@
 <div id="toast"></div>
 
 <script>
+// ── Branding aus config.json laden ───────────────────────────────────────────
+let APP_CONFIG = {};
+(async () => {
+  try {
+    APP_CONFIG = await fetch('/api/config').then(r => r.json());
+    const r = document.documentElement;
+    if (APP_CONFIG.primaryColor)    r.style.setProperty('--blue',     APP_CONFIG.primaryColor);
+    if (APP_CONFIG.accentColor)     r.style.setProperty('--light-blue', APP_CONFIG.accentColor);
+    if (APP_CONFIG.backgroundColor) r.style.setProperty('--bg',       APP_CONFIG.backgroundColor);
+    if (APP_CONFIG.tagline) document.querySelector('header h1').textContent = '🎵 ' + APP_CONFIG.tagline;
+    if (APP_CONFIG.schoolName) document.title = APP_CONFIG.schoolName + ' – Musikwünsche';
+  } catch {}
+})();
+
 // ── Session ID ───────────────────────────────────────────────────────────────
 let SESSION_ID = localStorage.getItem('mw_session');
 if (!SESSION_ID) {
@@ -691,6 +705,8 @@ async function init() {
 
     if (status.name) {
       document.getElementById('party-name').textContent = status.name;
+    } else {
+      document.getElementById('party-name').textContent = APP_CONFIG.schoolName || '';
     }
 
     // Gast-Checkin: startet/erneuert die Session (Zeitfenster läuft ab QR-Scan)

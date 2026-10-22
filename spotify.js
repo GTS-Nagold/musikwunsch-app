@@ -14,9 +14,6 @@ class SpotifyClient {
     this.refreshToken = process.env.SPOTIFY_REFRESH_TOKEN || null;
     this._queueCache = null;
     this._queueCacheTime = 0;
-    // App-Token (Client Credentials – kein User nötig, für Playlist-Tracks)
-    this._appToken = null;
-    this._appTokenExpiry = 0;
     this._loadTokens();
   }
 
@@ -59,14 +56,12 @@ class SpotifyClient {
     this.refreshToken = resp.data.refresh_token;
     this.tokenExpiry = Date.now() + (resp.data.expires_in - 60) * 1000;
     this._saveTokens();
-    console.log('✅ Spotify-Auth erfolgreich. Refresh Token:', this.refreshToken);
+    console.log('✅ Spotify-Auth erfolgreich.');
     return resp.data;
   }
 
   async _refreshAccessToken() {
-    if (!this.refreshToken) {
-      throw new Error('Kein Refresh Token vorhanden. Bitte /auth aufrufen.');
-    }
+    if (!this.refreshToken) throw new Error('Kein Refresh Token. Bitte /auth aufrufen.');
     const resp = await axios.post(
       'https://accounts.spotify.com/api/token',
       new URLSearchParams({ grant_type: 'refresh_token', refresh_token: this.refreshToken }),
@@ -85,162 +80,39 @@ class SpotifyClient {
     return { Authorization: `Bearer ${this.accessToken}` };
   }
 
-  // App-Token via Client Credentials – kein User-Login nötig
-  // Funktioniert für öffentliche Playlists ohne Development-Mode-Einschränkungen
-  async _appHeaders() {
-    if (!this._appToken || Date.now() > this._appTokenExpiry) {
-      const resp = await axios.post(
-        'https://accounts.spotify.com/api/token',
-        new URLSearchParams({ grant_type: 'client_credentials' }),
-        { headers: { 'Content-Type': 'application/x-www-form-urlencoded', Authorization: this._basicAuth() } }
-      );
-      this._appToken = resp.data.access_token;
-      this._appTokenExpiry = Date.now() + (resp.data.expires_in - 60) * 1000;
-      console.log('✅ Spotify App-Token erneuert (Client Credentials)');
-    }
-    return { Authorization: `Bearer ${this._appToken}` };
-  }
-
   isConnected() {
     return !!(this.refreshToken || this.accessToken);
   }
 
-  // ── Spotify API Aufrufe ──────────────────────────────────────────────────
+  // ── Spotify API ──────────────────────────────────────────────────────────
 
   async getPlaybackState() {
-    const h = await this._headers();
     try {
-      const resp = await axios.get('https://api.spotify.com/v1/me/player', { headers: h });
+      const resp = await axios.get('https://api.spotify.com/v1/me/player', { headers: await this._headers() });
       return resp.data || null;
     } catch {
       return null;
     }
   }
 
-  async getAllPlaylists() {
-    const h = await this._headers();
-    let url = 'https://api.spotify.com/v1/me/playlists?limit=50';
-    const all = [];
-    while (url) {
-      const resp = await axios.get(url, { headers: h });
-      all.push(...(resp.data.items || []));
-      url = resp.data.next;
-    }
-    return all;
-  }
-
-  async getFilteredPlaylists(danceNames, blocklist = []) {
-    const all = await this.getAllPlaylists();
-    return all
-      .filter(p => {
-        if (!p || !p.name) return false;
-        const lower = p.name.toLowerCase();
-        // Blocklist zuerst prüfen
-        if (blocklist.some(b => lower.includes(b.toLowerCase()))) return false;
-        // Dann Tanzname prüfen
-        return danceNames.some(d => lower.includes(d.toLowerCase()));
-      })
-      .map(p => ({
-        id: p.id,
-        name: p.name,
-        image: p.images?.[0]?.url || null,
-        trackCount: p.tracks?.total || 0
-      }))
-      .sort((a, b) => a.name.localeCompare(b.name, 'de'));
-  }
-
-  async getPlaylistTracks(playlistId) {
-    // /playlists/{id}/tracks ist in Spotify Development Mode blockiert (403)
-    // Lösung: Basis-Endpoint /playlists/{id} nutzen – gibt tracks.items zurück
-    // Für öffentliche Playlists: App-Token (Client Credentials)
-    // Für private/eigene Playlists: User-Token als Fallback
-
-    const extractTracks = (items) =>
-      (items || []).filter(i => i.track?.id && !i.track.is_local).map(i => ({
-        id: i.track.id,
-        uri: i.track.uri,
-        name: i.track.name,
-        artist: (i.track.artists || []).map(a => a.name).join(', '),
-        image: i.track.album?.images?.[2]?.url || i.track.album?.images?.[0]?.url || null
-      }));
-
-    const fetchBase = async (h) => {
-      const resp = await axios.get(
-        `https://api.spotify.com/v1/playlists/${encodeURIComponent(playlistId)}`,
-        { headers: h }
-      );
-      const tracks = extractTracks(resp.data.tracks?.items);
-
-      // Weitere Seiten versuchen (oft auch blockiert, dann graceful abbrechen)
-      let nextUrl = resp.data.tracks?.next;
-      while (nextUrl) {
-        try {
-          const page = await axios.get(nextUrl, { headers: h });
-          tracks.push(...extractTracks(page.data.items));
-          nextUrl = page.data.next;
-        } catch {
-          console.log(`Pagination für ${playlistId} bei ${tracks.length} Tracks gestoppt`);
-          break;
-        }
-      }
-      return tracks;
-    };
-
-    // 1. Versuch: User-Token auf Basis-Endpoint (authentifiziert, sieht eigene + öffentliche)
-    try {
-      const h = await this._headers();
-      const tracks = await fetchBase(h);
-      if (tracks.length > 0) {
-        console.log(`✅ User-Token: ${tracks.length} Tracks für ${playlistId}`);
-        return tracks;
-      }
-      console.log(`User-Token: 0 Tracks für ${playlistId}, versuche App-Token...`);
-    } catch (err) {
-      console.log(`User-Token Fehler für ${playlistId}: ${err.response?.status} – versuche App-Token`);
-    }
-
-    // 2. Versuch: App-Token (Client Credentials, für öffentliche Playlisten)
-    try {
-      const h = await this._appHeaders();
-      const tracks = await fetchBase(h);
-      console.log(`✅ App-Token: ${tracks.length} Tracks für ${playlistId}`);
-      return tracks;
-    } catch (err) {
-      const msg = err.response?.data?.error?.message;
-      throw new Error(msg ? `Spotify: ${msg}` : `Playlist konnte nicht geladen werden`);
-    }
-  }
-
   async search(query) {
-    const h = await this._headers();
-    try {
-      const resp = await axios.get('https://api.spotify.com/v1/search', {
-        headers: h,
-        params: { q: query, type: 'track' }
-      });
-      return (resp.data.tracks?.items || []).map(t => ({
-        id: t.id,
-        uri: t.uri,
-        name: t.name,
-        artist: (t.artists || []).map(a => a.name).join(', '),
-        image: t.album?.images?.[2]?.url || t.album?.images?.[0]?.url || null
-      }));
-    } catch (err) {
-      // Spotify-Fehlermeldung weitergeben für besseres Debugging
-      const spotifyMsg = err.response?.data?.error?.message;
-      const status = err.response?.status;
-      console.error(`Spotify Suche Fehler ${status}:`, spotifyMsg || err.message, '| Query:', query);
-      throw new Error(spotifyMsg ? `Spotify: ${spotifyMsg}` : `Suche fehlgeschlagen (${status})`);
-    }
+    const resp = await axios.get('https://api.spotify.com/v1/search', {
+      headers: await this._headers(),
+      params: { q: query, type: 'track', limit: 20 }
+    });
+    return (resp.data.tracks?.items || []).map(t => ({
+      id: t.id,
+      uri: t.uri,
+      name: t.name,
+      artist: (t.artists || []).map(a => a.name).join(', '),
+      image: t.album?.images?.[2]?.url || t.album?.images?.[0]?.url || null
+    }));
   }
 
   async getQueue() {
     const now = Date.now();
-    if (this._queueCache && now - this._queueCacheTime < 8000) {
-      return this._queueCache;
-    }
-    const h = await this._headers();
-    const resp = await axios.get('https://api.spotify.com/v1/me/player/queue', { headers: h });
+    if (this._queueCache && now - this._queueCacheTime < 8000) return this._queueCache;
+    const resp = await axios.get('https://api.spotify.com/v1/me/player/queue', { headers: await this._headers() });
     const uris = [];
     if (resp.data.currently_playing?.uri) uris.push(resp.data.currently_playing.uri);
     (resp.data.queue || []).forEach(t => { if (t.uri) uris.push(t.uri); });
@@ -250,66 +122,16 @@ class SpotifyClient {
   }
 
   async isInQueue(trackUri) {
-    const queue = await this.getQueue();
-    return queue.includes(trackUri);
+    return (await this.getQueue()).includes(trackUri);
   }
 
   async addToQueue(trackUri) {
-    const h = await this._headers();
     await axios.post(
       `https://api.spotify.com/v1/me/player/queue?uri=${encodeURIComponent(trackUri)}`,
       null,
-      { headers: h }
+      { headers: await this._headers() }
     );
-    // Cache invalidieren
     this._queueCache = null;
-  }
-
-  async getMe() {
-    const h = await this._headers();
-    const resp = await axios.get('https://api.spotify.com/v1/me', { headers: h });
-    return resp.data;
-  }
-
-  async debugPlaylist(playlistId) {
-    const appH = await this._appHeaders();
-    const userH = await this._headers();
-    const id = playlistId; // kein encodeURIComponent für den Test
-    const results = {};
-
-    // Test 1: /playlists/{id} (Basis-Info, kein /tracks)
-    try {
-      const r = await axios.get(`https://api.spotify.com/v1/playlists/${id}`, { headers: appH });
-      results.playlistInfo_appToken = { ok: true, name: r.data.name, tracks: r.data.tracks?.total };
-    } catch (e) {
-      results.playlistInfo_appToken = { ok: false, status: e.response?.status, error: e.response?.data?.error?.message || e.message };
-    }
-
-    // Test 2: /playlists/{id}/tracks mit App-Token
-    try {
-      const r = await axios.get(`https://api.spotify.com/v1/playlists/${id}/tracks`, { headers: appH });
-      results.tracks_appToken = { ok: true, count: r.data.items?.length };
-    } catch (e) {
-      results.tracks_appToken = { ok: false, status: e.response?.status, error: e.response?.data?.error?.message || e.message };
-    }
-
-    // Test 3: /playlists/{id}/tracks mit market=DE (App-Token)
-    try {
-      const r = await axios.get(`https://api.spotify.com/v1/playlists/${id}/tracks`, { headers: appH, params: { market: 'DE' } });
-      results.tracks_market_DE = { ok: true, count: r.data.items?.length };
-    } catch (e) {
-      results.tracks_market_DE = { ok: false, status: e.response?.status, error: e.response?.data?.error?.message || e.message };
-    }
-
-    // Test 4: /playlists/{id}/tracks mit User-Token + market=DE
-    try {
-      const r = await axios.get(`https://api.spotify.com/v1/playlists/${id}/tracks`, { headers: userH, params: { market: 'DE' } });
-      results.tracks_userToken_DE = { ok: true, count: r.data.items?.length };
-    } catch (e) {
-      results.tracks_userToken_DE = { ok: false, status: e.response?.status, error: e.response?.data?.error?.message || e.message };
-    }
-
-    return results;
   }
 }
 
