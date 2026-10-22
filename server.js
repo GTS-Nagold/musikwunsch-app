@@ -20,6 +20,12 @@ const DANCE_NAMES = [
   'zumba', 'polka', 'austanz', 'aus-tanz', 'aus tanz'
 ];
 
+// Playlisten die NICHT angezeigt werden sollen (egal ob Tanzname drin)
+const PLAYLIST_BLOCKLIST = [
+  'jesus', 'worship', 'gospel', 'praise', 'kirche', 'gottesdienst',
+  'christian', 'church', 'halleluja', 'anbetung', 'gebet', 'psalm'
+];
+
 // ── In-Memory State ─────────────────────────────────────────────────────────
 let activeParty = null;
 // { token, name, startedAt, expiresAt|null }
@@ -117,7 +123,7 @@ app.get('/api/party/status', (req, res) => {
 // Tanz-Playlisten laden
 app.get('/api/playlists', requireParty, async (req, res) => {
   try {
-    const lists = await spotify.getFilteredPlaylists(DANCE_NAMES);
+    const lists = await spotify.getFilteredPlaylists(DANCE_NAMES, PLAYLIST_BLOCKLIST);
     res.json(lists);
   } catch (err) {
     console.error('Playlist-Fehler:', err.message);
@@ -233,7 +239,7 @@ app.post('/admin/party/stop', requireAdmin, (req, res) => {
 // Aktive Playlisten (für Admin-Vorschau)
 app.get('/admin/playlists', requireAdmin, async (req, res) => {
   try {
-    const lists = await spotify.getFilteredPlaylists(DANCE_NAMES);
+    const lists = await spotify.getFilteredPlaylists(DANCE_NAMES, PLAYLIST_BLOCKLIST);
     res.json(lists);
   } catch (err) {
     res.status(500).json({ error: err.message });

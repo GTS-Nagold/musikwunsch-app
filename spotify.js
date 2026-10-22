@@ -110,10 +110,17 @@ class SpotifyClient {
     return all;
   }
 
-  async getFilteredPlaylists(danceNames) {
+  async getFilteredPlaylists(danceNames, blocklist = []) {
     const all = await this.getAllPlaylists();
     return all
-      .filter(p => p && p.name && danceNames.some(d => p.name.toLowerCase().includes(d.toLowerCase())))
+      .filter(p => {
+        if (!p || !p.name) return false;
+        const lower = p.name.toLowerCase();
+        // Blocklist zuerst prüfen
+        if (blocklist.some(b => lower.includes(b.toLowerCase()))) return false;
+        // Dann Tanzname prüfen
+        return danceNames.some(d => lower.includes(d.toLowerCase()));
+      })
       .map(p => ({
         id: p.id,
         name: p.name,
@@ -147,7 +154,7 @@ class SpotifyClient {
     const h = await this._headers();
     const resp = await axios.get('https://api.spotify.com/v1/search', {
       headers: h,
-      params: { q: query, type: 'track', limit: 20, market: 'DE' }
+      params: { q: query, type: 'track', limit: 20 }
     });
     return (resp.data.tracks?.items || []).map(t => ({
       id: t.id,
