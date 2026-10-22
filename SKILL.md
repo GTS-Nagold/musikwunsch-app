@@ -69,9 +69,15 @@ PORT=3000
 > **Claude-Anweisung:** Erkläre dem Nutzer jeden Klick genau.
 > Warte bis er bestätigt, dass er den Schritt abgeschlossen hat.
 
+> ⚠️ **Wichtig:** Du brauchst deinen **eigenen Spotify-Account** und deine **eigene Spotify Developer App**.
+> Verwende NICHT die Zugangsdaten (Client ID / Client Secret) von jemand anderem –
+> sonst landen die Musikwünsche deiner Gäste in der Queue dieser anderen Person, nicht bei dir.
+> Die Developer App ist kostenlos, kein Extra-Abo nötig.
+
 Sage dem Nutzer:
 
-1. Öffne → **developer.spotify.com/dashboard** (mit dem Spotify-Account, der an der Party läuft)
+1. Öffne → **developer.spotify.com/dashboard**
+   → Melde dich mit **deinem eigenen Spotify Premium Account** an (der Account, auf dem du an der Party Musik abspielst)
 2. Klicke **„Create app"**
 3. Fülle aus:
    - App name: `[SCHOOL_NAME] Musikwünsche`
@@ -141,7 +147,7 @@ Sage dem Nutzer:
 Sage dem Nutzer:
 
 1. Öffne `[APP_URL]/auth` im Browser
-2. Melde dich mit dem **Party-Spotify-Account** an
+2. Melde dich mit **deinem eigenen Spotify Premium Account** an (derselbe wie in Schritt 3)
 3. Bestätige die Berechtigungen
 4. Du siehst einen langen Token – klicke drauf zum Kopieren
 5. Gehe in Render → Environment → neue Variable:

@@ -62,8 +62,12 @@ In deiner GitHub-Kopie: Datei **`config.json`** öffnen und bearbeiten:
 
 *(Einmalig, ca. 5 Minuten)*
 
+> ⚠️ **Wichtig:** Jede Tanzschule braucht ihre **eigene** Spotify Developer App mit ihrem **eigenen** Spotify-Account.
+> Verwende nicht die Client ID / den Client Secret einer anderen Tanzschule – sonst würden Musikwünsche
+> in deren Queue landen, nicht deiner. Die Registrierung als Developer ist kostenlos (kein Extra-Abo).
+
 1. Gehe auf → [developer.spotify.com/dashboard](https://developer.spotify.com/dashboard)
-2. **Login** mit dem Spotify-Account, der an der Party läuft
+2. **Login** mit **deinem eigenen** Spotify Premium Account (der Account, der an der Party Musik abspielt)
 3. Klicke **„Create app"**
 4. Fülle aus:
    - App name: z.B. `Tanzschule Musikwünsche`
