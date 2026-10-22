@@ -247,8 +247,8 @@ app.get('/admin/playlists', requireAdmin, async (req, res) => {
   }
 });
 
-// Debug: Spotify-Account + Scopes + Playlist-Test (nur Admin)
-app.get('/debug', requireAdmin, async (req, res) => {
+// Debug: Spotify-Account + Scopes + Playlist-Test (temporär offen)
+app.get('/debug', async (req, res) => {
   const result = { timestamp: new Date().toISOString() };
 
   // 1. Spotify Account-Infos + Scopes
