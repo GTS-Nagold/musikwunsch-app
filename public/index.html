@@ -503,23 +503,23 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
 // ── Tanzstil-Liste ────────────────────────────────────────────────────────────
 // id = Schlüssel in data/songs.json; ohne id → Spotify-Suche als Fallback
 const DANCE_LIST = [
+  { id: 'bachata',          name: 'Bachata',          emoji: '🎵' },
+  { id: 'blues',            name: 'Blues',            emoji: '🎼' },
+  { id: 'boogie',           name: 'Boogie',           emoji: '🎸' },
+  { id: 'cha-cha',          name: 'Cha Cha',          emoji: '💫' },
+  { id: 'discofox',         name: 'Discofox',         emoji: '🪩' },
+  { id: 'foxtrott',         name: 'Foxtrott',         emoji: '🦊' },
+  { id: 'jive',             name: 'Jive',             emoji: '⚡' },
+  { id: 'lindy-hop',        name: 'Lindy Hop',        emoji: '🎷' },
+  { id: null,               name: 'Paso Doble',       emoji: '🎺', query: 'Paso Doble' },
+  { id: null,               name: 'Quickstep',        emoji: '🏃', query: 'Quickstep' },
+  { id: 'rumba',            name: 'Rumba',            emoji: '❤️' },
+  { id: 'salsa',            name: 'Salsa',            emoji: '🌶️' },
+  { id: 'samba',            name: 'Samba',            emoji: '🥁' },
+  { id: 'slowfox',          name: 'Slowfox',          emoji: '🌙' },
+  { id: 'tango',            name: 'Tango',            emoji: '🌹' },
   { id: 'walzer',           name: 'Walzer',           emoji: '🩰' },
   { id: 'wiener-walzer',    name: 'Wiener Walzer',    emoji: '💃' },
-  { id: 'tango',            name: 'Tango',            emoji: '🌹' },
-  { id: null,               name: 'Quickstep',        emoji: '⚡', query: 'Quickstep' },
-  { id: 'foxtrott',         name: 'Foxtrott',         emoji: '🦊' },
-  { id: 'slowfox',          name: 'Slowfox',          emoji: '🌙' },
-  { id: 'samba',            name: 'Samba',            emoji: '🥁' },
-  { id: 'cha-cha',          name: 'Cha Cha',          emoji: '💫' },
-  { id: 'rumba',            name: 'Rumba',            emoji: '❤️' },
-  { id: null,               name: 'Paso Doble',       emoji: '🎺', query: 'Paso Doble' },
-  { id: 'jive',             name: 'Jive',             emoji: '🎸' },
-  { id: 'discofox',         name: 'Discofox',         emoji: '🪩' },
-  { id: 'bachata',          name: 'Bachata',          emoji: '🎵' },
-  { id: 'salsa',            name: 'Salsa',            emoji: '🌶️' },
-  { id: 'lindy-hop',        name: 'Lindy Hop',        emoji: '🎷' },
-  { id: 'blues',            name: 'Blues',            emoji: '🎺' },
-  { id: 'boogie',           name: 'Boogie',           emoji: '🎸' },
 ];
 
 // ── Kuratierte Track-Karte (kein URI – Wunsch läuft über Titel+Artist) ────────
