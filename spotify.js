@@ -125,6 +125,15 @@ class SpotifyClient {
     return (await this.getQueue()).includes(trackUri);
   }
 
+  async getQueueInfo() {
+    const resp = await axios.get('https://api.spotify.com/v1/me/player/queue', { headers: await this._headers() });
+    const fmt = t => t ? { name: t.name, artist: (t.artists || []).map(a => a.name).join(', '), uri: t.uri } : null;
+    return {
+      currentlyPlaying: fmt(resp.data.currently_playing),
+      queue: (resp.data.queue || []).slice(0, 30).map(fmt)
+    };
+  }
+
   async addToQueue(trackUri) {
     await axios.post(
       `https://api.spotify.com/v1/me/player/queue?uri=${encodeURIComponent(trackUri)}`,

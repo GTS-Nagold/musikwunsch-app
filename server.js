@@ -229,6 +229,27 @@ app.post('/admin/party/start', requireAdmin, (req, res) => {
   res.json({ success: true, party: activeParty, url });
 });
 
+// Aktuelle Spotify-Queue anzeigen
+app.get('/admin/queue', requireAdmin, async (req, res) => {
+  try {
+    res.json(await spotify.getQueueInfo());
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Config live aktualisieren (Farben, Name) + Datei auf Disk schreiben
+app.post('/admin/config', requireAdmin, (req, res) => {
+  try {
+    const updated = { ...config, ...req.body };
+    fs.writeFileSync(path.join(__dirname, 'config.json'), JSON.stringify(updated, null, 2));
+    Object.assign(config, updated);
+    res.json({ success: true, config });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.post('/admin/party/stop', requireAdmin, (req, res) => {
   console.log(`🛑 Party beendet: "${activeParty?.name || '–'}"`);
   activeParty = null;
