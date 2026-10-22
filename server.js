@@ -286,19 +286,24 @@ app.get('/debug', async (req, res) => {
     result.playlistsError = err.response?.data?.error?.message || err.message;
   }
 
-  // 3. Ersten Tanz-Playlist-Track-Fetch testen
-  if (result.dancePlaylists?.length > 0) {
-    const testPlaylist = result.dancePlaylists[0];
-    result.trackTest = { playlistId: testPlaylist.id, playlistName: testPlaylist.name };
+  // 3. Track-Test: einmal fremde Playlist, einmal eigene Playlist
+  const me = result.account?.id;
+  const externalPl = result.dancePlaylists?.find(p => p.owner !== me);
+  const ownPl = result.dancePlaylists?.find(p => p.owner === me);
+
+  result.trackTests = [];
+  for (const pl of [externalPl, ownPl].filter(Boolean)) {
+    const test = { playlistId: pl.id, playlistName: pl.name, owner: pl.owner, isOwnPlaylist: pl.owner === me };
     try {
-      const r = await spotify.debugPlaylist(testPlaylist.id);
-      result.trackTest.success = true;
-      result.trackTest.result = r;
+      const r = await spotify.debugPlaylist(pl.id);
+      test.success = true;
+      test.result = r;
     } catch (err) {
-      result.trackTest.success = false;
-      result.trackTest.status = err.response?.status;
-      result.trackTest.error = err.response?.data?.error?.message || err.message;
+      test.success = false;
+      test.status = err.response?.status;
+      test.error = err.response?.data?.error?.message || err.message;
     }
+    result.trackTests.push(test);
   }
 
   res.json(result);
