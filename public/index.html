@@ -145,13 +145,8 @@
     .playlist-arrow {
       font-size: 1rem;
       color: var(--muted);
-      transition: transform .2s;
       flex-shrink: 0;
     }
-    .playlist-item.open .playlist-arrow { transform: rotate(90deg); }
-
-    .track-list { display: none; border-top: 1px solid #eef; }
-    .playlist-item.open .track-list { display: block; }
 
     .track-loading {
       text-align: center;
@@ -482,6 +477,37 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
   });
 });
 
+// ── Tanznamen aus Playlist-Name extrahieren ───────────────────────────────────
+function extractDanceName(name) {
+  const lower = name.toLowerCase();
+  // Längste zuerst (Mehrwort-Namen vor Einzelwörtern)
+  const dances = [
+    'wiener walzer', 'cha cha cha', 'cha cha', 'lindy hop', 'west coast swing',
+    'slow fox', 'paso doble', 'discofox', 'slowfox', 'quickstep', 'foxtrott',
+    'walzer', 'tango', 'samba', 'rumba', 'jive', 'bachata', 'salsa', 'merengue',
+    'kizomba', 'zouk', 'zumba', 'polka', 'boogie', 'swing', 'blues'
+  ];
+  for (const d of dances) {
+    if (lower.includes(d)) return d.charAt(0).toUpperCase() + d.slice(1);
+  }
+  // Fallback: Präfixe entfernen
+  return name.replace(/^(TidM|XX|ZZ|MDN|KDT|Xmas|80er|Country|Gregor|Probestunde|\d+_[\w]*)[\s\-_]+/i, '').trim() || name;
+}
+
+// ── In Suche wechseln und suchen ──────────────────────────────────────────────
+function switchToSearch(query) {
+  // Tab wechseln
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+  document.querySelector('[data-tab="search"]').classList.add('active');
+  document.getElementById('tab-search').classList.add('active');
+  // Suche befüllen und starten
+  const input = document.getElementById('search-input');
+  input.value = query;
+  searchResults.innerHTML = '<div class="empty-state"><div class="icon">⏳</div><p>Suche…</p></div>';
+  runSearch(query);
+}
+
 // ── Playlisten laden ──────────────────────────────────────────────────────────
 async function loadPlaylists() {
   const container = document.getElementById('playlists-container');
@@ -491,10 +517,18 @@ async function loadPlaylists() {
       container.innerHTML = '<div class="empty-state"><div class="icon">🎵</div><p>Keine Tanz-Playlisten gefunden.</p></div>';
       return;
     }
+
+    // Erklärung oben
+    const hint = document.createElement('p');
+    hint.style.cssText = 'font-size:.82rem;color:var(--muted);margin-bottom:.75rem;text-align:center';
+    hint.textContent = '💡 Playlist antippen → zeigt passende Songs';
     container.innerHTML = '';
+    container.appendChild(hint);
+
     lists.forEach(pl => {
       const item = document.createElement('div');
       item.className = 'playlist-item';
+      item.style.cursor = 'pointer';
       const img = pl.image
         ? `<img class="playlist-img" src="${pl.image}" alt="" loading="lazy">`
         : `<div class="playlist-img-placeholder">💿</div>`;
@@ -503,36 +537,15 @@ async function loadPlaylists() {
           ${img}
           <div class="playlist-info">
             <div class="playlist-name">${esc(pl.name)}</div>
-            <div class="playlist-count">${pl.trackCount > 0 ? pl.trackCount + ' Songs' : 'Tippe zum Laden'}</div>
+            <div class="playlist-count">${pl.trackCount > 0 ? pl.trackCount + ' Songs' : 'Spotify Suche'}</div>
           </div>
-          <span class="playlist-arrow">›</span>
+          <span class="playlist-arrow">🔍</span>
         </div>
-        <div class="track-list"></div>
       `;
-      const header = item.querySelector('.playlist-header');
-      const trackList = item.querySelector('.track-list');
-      let loaded = false;
-
-      header.addEventListener('click', async () => {
-        item.classList.toggle('open');
-        if (!item.classList.contains('open')) return;
-        if (loaded) return;
-        loaded = true;
-        trackList.innerHTML = '<div class="track-loading">Lade Songs…</div>';
-        try {
-          const tracks = await api(`/api/playlist/${pl.id}/tracks`);
-          trackList.innerHTML = '';
-          if (!tracks.length) {
-            trackList.innerHTML = '<div class="track-loading">Keine Songs gefunden.</div>';
-            return;
-          }
-          tracks.forEach(t => trackList.appendChild(makeTrackCard(t)));
-        } catch (err) {
-          trackList.innerHTML = `<div class="track-loading" style="color:red">${esc(err.message)}</div>`;
-          loaded = false;
-        }
+      item.addEventListener('click', () => {
+        const query = extractDanceName(pl.name);
+        switchToSearch(query);
       });
-
       container.appendChild(item);
     });
   } catch (err) {
