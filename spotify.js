@@ -186,25 +186,28 @@ class SpotifyClient {
       return tracks;
     };
 
-    // 1. Versuch: App-Token (für öffentliche Playlisten)
+    // 1. Versuch: User-Token auf Basis-Endpoint (authentifiziert, sieht eigene + öffentliche)
+    try {
+      const h = await this._headers();
+      const tracks = await fetchBase(h);
+      if (tracks.length > 0) {
+        console.log(`✅ User-Token: ${tracks.length} Tracks für ${playlistId}`);
+        return tracks;
+      }
+      console.log(`User-Token: 0 Tracks für ${playlistId}, versuche App-Token...`);
+    } catch (err) {
+      console.log(`User-Token Fehler für ${playlistId}: ${err.response?.status} – versuche App-Token`);
+    }
+
+    // 2. Versuch: App-Token (Client Credentials, für öffentliche Playlisten)
     try {
       const h = await this._appHeaders();
-      return await fetchBase(h);
+      const tracks = await fetchBase(h);
+      console.log(`✅ App-Token: ${tracks.length} Tracks für ${playlistId}`);
+      return tracks;
     } catch (err) {
-      const status = err.response?.status;
-      // 404 = private Playlist, nicht sichtbar für App-Token → User-Token
-      if (status === 404 || status === 401 || status === 403) {
-        console.log(`App-Token ${status} für ${playlistId}, versuche User-Token...`);
-        try {
-          const h = await this._headers();
-          return await fetchBase(h);
-        } catch (err2) {
-          const msg = err2.response?.data?.error?.message;
-          throw new Error(msg ? `Spotify: ${msg}` : `Playlist konnte nicht geladen werden`);
-        }
-      }
       const msg = err.response?.data?.error?.message;
-      throw new Error(msg ? `Spotify: ${msg}` : `Playlist konnte nicht geladen werden (${status})`);
+      throw new Error(msg ? `Spotify: ${msg}` : `Playlist konnte nicht geladen werden`);
     }
   }
 
