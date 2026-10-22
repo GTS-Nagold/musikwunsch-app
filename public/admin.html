@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Admin – Musikwunsch App</title>
+  <style>
+    :root {
+      --blue: #2f3d7c;
+      --light: #799cc4;
+      --bg: #f0f4ff;
+      --card: #fff;
+      --success: #16a34a;
+      --error: #dc2626;
+      --warning: #d97706;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, 'PT Sans', sans-serif; background: var(--bg); color: #1a1a2e; min-height: 100vh; }
+
+    header {
+      background: var(--blue);
+      color: white;
+      padding: 1rem 1.5rem;
+    }
+    header h1 { font-size: 1.25rem; font-weight: 600; }
+    header p { font-size: .8rem; color: var(--light); margin-top: .1rem; }
+
+    main { max-width: 600px; margin: 0 auto; padding: 1.5rem; }
+
+    /* Login */
+    #login-screen { text-align: center; padding: 3rem 1rem; }
+    #login-screen h2 { color: var(--blue); margin-bottom: 1rem; }
+    .form-group { margin-bottom: .75rem; text-align: left; }
+    label { font-size: .85rem; font-weight: 600; color: var(--blue); display: block; margin-bottom: .3rem; }
+    input[type=password], input[type=text], input[type=number] {
+      width: 100%;
+      padding: .7rem 1rem;
+      border: 2px solid #e0e5f5;
+      border-radius: .6rem;
+      font-size: 1rem;
+      outline: none;
+      background: var(--card);
+    }
+    input:focus { border-color: var(--light); }
+
+    /* Buttons */
+    .btn {
+      display: inline-block;
+      padding: .7rem 1.5rem;
+      border: none;
+      border-radius: .6rem;
+      font-size: .95rem;
+      cursor: pointer;
+      font-weight: 600;
+      transition: opacity .2s;
+    }
+    .btn:disabled { opacity: .5; cursor: default; }
+    .btn-primary { background: var(--blue); color: white; }
+    .btn-danger { background: var(--error); color: white; }
+    .btn-success { background: var(--success); color: white; }
+    .btn-full { width: 100%; text-align: center; }
+    .btn:hover:not(:disabled) { opacity: .85; }
+
+    /* Cards */
+    .card {
+      background: var(--card);
+      border-radius: .9rem;
+      padding: 1.25rem;
+      margin-bottom: 1rem;
+      box-shadow: 0 1px 6px rgba(0,0,0,.07);
+    }
+    .card h3 { color: var(--blue); font-size: 1rem; margin-bottom: 1rem; }
+
+    /* Status Dots */
+    .status-row { display: flex; align-items: center; gap: .6rem; margin-bottom: .5rem; font-size: .9rem; }
+    .dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+    .dot.green { background: var(--success); }
+    .dot.red { background: var(--error); }
+    .dot.grey { background: #aaa; }
+
+    /* Party aktiv */
+    #party-active-section { display: none; }
+    #party-inactive-section { display: none; }
+
+    .party-info {
+      background: #f0fff4;
+      border: 1px solid #86efac;
+      border-radius: .6rem;
+      padding: 1rem;
+      margin-bottom: 1rem;
+    }
+    .party-info h4 { color: var(--success); margin-bottom: .4rem; }
+    .party-info p { font-size: .85rem; color: #166534; word-break: break-all; }
+
+    /* QR Code */
+    #qr-wrapper {
+      text-align: center;
+      margin: 1rem 0;
+    }
+    #qr-wrapper img { border-radius: .5rem; box-shadow: 0 2px 8px rgba(0,0,0,.15); }
+    #qr-url {
+      font-size: .75rem;
+      color: var(--blue);
+      word-break: break-all;
+      margin-top: .5rem;
+      background: #eef;
+      padding: .4rem .6rem;
+      border-radius: .4rem;
+    }
+
+    /* Playlist preview */
+    #playlist-preview { margin-top: .75rem; }
+    .pl-pill {
+      display: inline-block;
+      background: #e8eaf6;
+      color: var(--blue);
+      padding: .25rem .65rem;
+      border-radius: 1rem;
+      font-size: .78rem;
+      margin: .2rem;
+    }
+
+    /* Toast */
+    #admin-toast {
+      position: fixed; bottom: 1.5rem; left: 50%;
+      transform: translateX(-50%) translateY(100px);
+      background: var(--blue); color: white;
+      padding: .7rem 1.2rem; border-radius: 2rem;
+      font-size: .88rem; z-index: 999;
+      transition: transform .3s;
+      box-shadow: 0 4px 16px rgba(0,0,0,.2);
+    }
+    #admin-toast.show { transform: translateX(-50%) translateY(0); }
+    #admin-toast.success { background: var(--success); }
+    #admin-toast.error { background: var(--error); }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>🎛️ Admin – Musikwunsch App</h1>
+  <p>GregorS Tanzschule · Nur für Tanzlehrer</p>
+</header>
+
+<!-- Login -->
+<div id="login-screen">
+  <main>
+    <div class="card">
+      <h3>🔒 Admin-Login</h3>
+      <div class="form-group">
+        <label>Passwort</label>
+        <input type="password" id="admin-pwd" placeholder="Admin-Passwort eingeben" autocomplete="current-password">
+      </div>
+      <button class="btn btn-primary btn-full" onclick="login()">Einloggen</button>
+    </div>
+  </main>
+</div>
+
+<!-- Admin-Panel -->
+<div id="admin-panel" style="display:none">
+  <main>
+
+    <!-- Spotify Status -->
+    <div class="card">
+      <h3>🎵 Spotify Status</h3>
+      <div id="spotify-status">
+        <div class="status-row"><div class="dot grey" id="dot-conn"></div><span id="txt-conn">Prüfe…</span></div>
+        <div class="status-row"><div class="dot grey" id="dot-play"></div><span id="txt-play">–</span></div>
+      </div>
+      <div id="auth-hint" style="display:none;margin-top:.75rem">
+        <p style="font-size:.85rem;color:var(--error);margin-bottom:.5rem">
+          Spotify noch nicht verbunden. Einmalig autorisieren:
+        </p>
+        <a href="/auth" class="btn btn-primary" style="text-decoration:none;display:inline-block">
+          → Spotify verbinden
+        </a>
+      </div>
+    </div>
+
+    <!-- Party-Status: inaktiv -->
+    <div class="card" id="party-inactive-section">
+      <h3>🎉 Party starten</h3>
+      <div class="form-group">
+        <label>Party-Name (wird Gästen angezeigt)</label>
+        <input type="text" id="party-name-input" placeholder="z.B. Herbst-Tanzparty 2026" value="Tanzparty">
+      </div>
+      <div class="form-group">
+        <label>Dauer in Stunden (leer = unbegrenzt)</label>
+        <input type="number" id="party-duration" placeholder="z.B. 5" min="1" max="24">
+      </div>
+      <button class="btn btn-success btn-full" onclick="startParty()">🎉 Party starten & QR-Code generieren</button>
+    </div>
+
+    <!-- Party-Status: aktiv -->
+    <div class="card" id="party-active-section">
+      <h3>✅ Party läuft</h3>
+      <div class="party-info">
+        <h4 id="active-party-name">Party-Name</h4>
+        <p id="active-party-started"></p>
+        <p id="active-party-expires"></p>
+      </div>
+
+      <div id="qr-wrapper"></div>
+      <div id="qr-url"></div>
+
+      <div style="margin-top:1rem">
+        <button class="btn btn-danger btn-full" onclick="stopParty()">🛑 Party beenden</button>
+      </div>
+    </div>
+
+    <!-- Playlist-Vorschau -->
+    <div class="card">
+      <h3>📋 Erkannte Tanz-Playlisten</h3>
+      <p style="font-size:.82rem;color:#666;margin-bottom:.75rem">
+        Alle Playlisten, die einen Tanznamen im Titel enthalten – diese sehen die Gäste.
+      </p>
+      <div id="playlist-preview">
+        <span style="font-size:.85rem;color:#999">Wird nach Login geladen…</span>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<div id="admin-toast"></div>
+
+<script>
+let ADMIN_PASSWORD = '';
+let currentPartyUrl = '';
+
+function api(path, opts = {}) {
+  return fetch(path, {
+    headers: {
+      'Content-Type': 'application/json',
+      'x-admin-password': ADMIN_PASSWORD
+    },
+    ...opts
+  }).then(async r => {
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || 'Fehler');
+    return data;
+  });
+}
+
+let toastTimer;
+function toast(msg, type = '', duration = 3000) {
+  const t = document.getElementById('admin-toast');
+  t.textContent = msg;
+  t.className = `show ${type}`;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { t.className = ''; }, duration);
+}
+
+async function login() {
+  const pwd = document.getElementById('admin-pwd').value;
+  if (!pwd) return;
+  ADMIN_PASSWORD = pwd;
+  try {
+    await loadStatus();
+    document.getElementById('login-screen').style.display = 'none';
+    document.getElementById('admin-panel').style.display = 'block';
+    loadPlaylists();
+  } catch {
+    toast('Falsches Passwort', 'error');
+    ADMIN_PASSWORD = '';
+  }
+}
+
+document.getElementById('admin-pwd').addEventListener('keydown', e => {
+  if (e.key === 'Enter') login();
+});
+
+async function loadStatus() {
+  const s = await api('/admin/status');
+
+  // Spotify
+  const dotConn = document.getElementById('dot-conn');
+  const txtConn = document.getElementById('txt-conn');
+  if (s.spotifyConnected) {
+    dotConn.className = 'dot green';
+    txtConn.textContent = 'Spotify verbunden ✓';
+    document.getElementById('auth-hint').style.display = 'none';
+  } else {
+    dotConn.className = 'dot red';
+    txtConn.textContent = 'Spotify NICHT verbunden';
+    document.getElementById('auth-hint').style.display = 'block';
+  }
+
+  const dotPlay = document.getElementById('dot-play');
+  const txtPlay = document.getElementById('txt-play');
+  if (s.spotifyPlaying) {
+    dotPlay.className = 'dot green';
+    txtPlay.textContent = `Wiedergabe aktiv auf: ${s.spotifyDevice || 'unbekannt'}`;
+  } else {
+    dotPlay.className = 'dot grey';
+    txtPlay.textContent = 'Keine aktive Wiedergabe';
+  }
+
+  // Party
+  if (s.party) {
+    showActiveParty(s.party, null);
+  } else {
+    document.getElementById('party-inactive-section').style.display = 'block';
+    document.getElementById('party-active-section').style.display = 'none';
+  }
+}
+
+function showActiveParty(party, url) {
+  document.getElementById('party-inactive-section').style.display = 'none';
+  document.getElementById('party-active-section').style.display = 'block';
+
+  document.getElementById('active-party-name').textContent = '🎉 ' + party.name;
+  const started = new Date(party.startedAt).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+  document.getElementById('active-party-started').textContent = `Gestartet: ${started} Uhr`;
+
+  if (party.expiresAt) {
+    const exp = new Date(party.expiresAt).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+    document.getElementById('active-party-expires').textContent = `Läuft bis: ${exp} Uhr`;
+  } else {
+    document.getElementById('active-party-expires').textContent = 'Läuft bis manuell gestoppt.';
+  }
+
+  // URL rekonstruieren wenn nicht übergeben
+  if (!url) {
+    const base = window.location.origin;
+    url = `${base}/?party=${party.token}`;
+  }
+  currentPartyUrl = url;
+
+  // QR-Code
+  const qrWrapper = document.getElementById('qr-wrapper');
+  const encoded = encodeURIComponent(url);
+  qrWrapper.innerHTML = `<img src="https://api.qrserver.com/v1/create-qr-code/?size=260x260&margin=10&data=${encoded}" alt="QR-Code" width="260" height="260">`;
+  document.getElementById('qr-url').textContent = url;
+}
+
+async function startParty() {
+  const name = document.getElementById('party-name-input').value.trim() || 'Tanzparty';
+  const durationHours = document.getElementById('party-duration').value || null;
+  try {
+    const data = await api('/admin/party/start', {
+      method: 'POST',
+      body: JSON.stringify({ name, durationHours: durationHours ? Number(durationHours) : null })
+    });
+    showActiveParty(data.party, data.url);
+    toast('Party gestartet! QR-Code ist bereit.', 'success');
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+}
+
+async function stopParty() {
+  if (!confirm('Party wirklich beenden? Der QR-Code wird sofort ungültig.')) return;
+  try {
+    await api('/admin/party/stop', { method: 'POST' });
+    document.getElementById('party-inactive-section').style.display = 'block';
+    document.getElementById('party-active-section').style.display = 'none';
+    toast('Party beendet.', '');
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+}
+
+async function loadPlaylists() {
+  const container = document.getElementById('playlist-preview');
+  try {
+    const lists = await api('/admin/playlists');
+    if (!lists.length) {
+      container.innerHTML = '<span style="font-size:.85rem;color:#999">Keine Tanz-Playlisten gefunden.</span>';
+      return;
+    }
+    container.innerHTML = lists.map(p =>
+      `<span class="pl-pill">💿 ${p.name} <span style="opacity:.6">(${p.trackCount})</span></span>`
+    ).join('');
+  } catch (err) {
+    container.innerHTML = `<span style="font-size:.85rem;color:red">${err.message}</span>`;
+  }
+}
+
+// Status alle 30s aktualisieren
+setInterval(() => {
+  if (ADMIN_PASSWORD) loadStatus().catch(() => {});
+}, 30_000);
+</script>
+</body>
+</html>

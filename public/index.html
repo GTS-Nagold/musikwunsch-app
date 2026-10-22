@@ -1,0 +1,610 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+  <title>Musikwünsche – GregorS Tanzschule</title>
+  <style>
+    :root {
+      --blue: #2f3d7c;
+      --light-blue: #799cc4;
+      --bg: #f0f4ff;
+      --card: #ffffff;
+      --text: #1a1a2e;
+      --muted: #6b7280;
+      --success: #16a34a;
+      --error: #dc2626;
+      --warning: #d97706;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'PT Sans', -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      padding-bottom: 2rem;
+    }
+
+    /* ── Header ── */
+    header {
+      background: var(--blue);
+      color: white;
+      padding: 1rem 1.25rem 0.75rem;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      box-shadow: 0 2px 12px rgba(47,61,124,.3);
+    }
+    header h1 {
+      font-family: 'Berkshire Swash', Georgia, serif;
+      font-size: 1.35rem;
+      font-weight: 400;
+      letter-spacing: .02em;
+      color: white;
+    }
+    header p {
+      font-size: .8rem;
+      color: var(--light-blue);
+      margin-top: .15rem;
+    }
+
+    /* ── Tabs ── */
+    .tabs {
+      display: flex;
+      background: var(--blue);
+      padding: 0 1rem;
+      gap: .5rem;
+    }
+    .tab-btn {
+      flex: 1;
+      background: none;
+      border: none;
+      border-bottom: 3px solid transparent;
+      color: rgba(255,255,255,.6);
+      padding: .6rem .5rem;
+      font-size: .9rem;
+      cursor: pointer;
+      transition: all .2s;
+    }
+    .tab-btn.active {
+      color: white;
+      border-bottom-color: white;
+    }
+
+    /* ── Tab Content ── */
+    .tab-content { display: none; padding: 1rem; }
+    .tab-content.active { display: block; }
+
+    /* ── Toast ── */
+    #toast {
+      position: fixed;
+      bottom: 1.5rem;
+      left: 50%;
+      transform: translateX(-50%) translateY(100px);
+      background: var(--blue);
+      color: white;
+      padding: .75rem 1.25rem;
+      border-radius: 2rem;
+      font-size: .9rem;
+      max-width: calc(100vw - 2rem);
+      text-align: center;
+      z-index: 999;
+      transition: transform .3s ease;
+      box-shadow: 0 4px 20px rgba(0,0,0,.2);
+    }
+    #toast.show { transform: translateX(-50%) translateY(0); }
+    #toast.success { background: var(--success); }
+    #toast.error { background: var(--error); }
+    #toast.warning { background: var(--warning); }
+
+    /* ── Playlist-Liste ── */
+    .playlist-item {
+      background: var(--card);
+      border-radius: .75rem;
+      margin-bottom: .75rem;
+      overflow: hidden;
+      box-shadow: 0 1px 4px rgba(0,0,0,.08);
+    }
+    .playlist-header {
+      display: flex;
+      align-items: center;
+      gap: .75rem;
+      padding: .85rem 1rem;
+      cursor: pointer;
+      user-select: none;
+    }
+    .playlist-img {
+      width: 48px; height: 48px;
+      border-radius: .4rem;
+      object-fit: cover;
+      background: #dde;
+      flex-shrink: 0;
+    }
+    .playlist-img-placeholder {
+      width: 48px; height: 48px;
+      border-radius: .4rem;
+      background: var(--light-blue);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.4rem;
+      flex-shrink: 0;
+    }
+    .playlist-info { flex: 1; min-width: 0; }
+    .playlist-name {
+      font-size: .95rem;
+      font-weight: 600;
+      color: var(--blue);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .playlist-count { font-size: .78rem; color: var(--muted); }
+    .playlist-arrow {
+      font-size: 1rem;
+      color: var(--muted);
+      transition: transform .2s;
+      flex-shrink: 0;
+    }
+    .playlist-item.open .playlist-arrow { transform: rotate(90deg); }
+
+    .track-list { display: none; border-top: 1px solid #eef; }
+    .playlist-item.open .track-list { display: block; }
+
+    .track-loading {
+      text-align: center;
+      padding: 1rem;
+      color: var(--muted);
+      font-size: .85rem;
+    }
+
+    /* ── Track-Karte ── */
+    .track-card {
+      display: flex;
+      align-items: center;
+      gap: .75rem;
+      padding: .7rem 1rem;
+      border-bottom: 1px solid #f0f2f8;
+    }
+    .track-card:last-child { border-bottom: none; }
+    .track-img {
+      width: 42px; height: 42px;
+      border-radius: .3rem;
+      object-fit: cover;
+      background: #dde;
+      flex-shrink: 0;
+    }
+    .track-img-placeholder {
+      width: 42px; height: 42px;
+      border-radius: .3rem;
+      background: #e8eaf6;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.1rem;
+      flex-shrink: 0;
+    }
+    .track-info { flex: 1; min-width: 0; }
+    .track-name {
+      font-size: .88rem;
+      font-weight: 600;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .track-artist {
+      font-size: .78rem;
+      color: var(--muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    /* ── Wünschen-Button ── */
+    .wish-btn {
+      background: var(--blue);
+      color: white;
+      border: none;
+      border-radius: 1.5rem;
+      padding: .45rem .85rem;
+      font-size: .8rem;
+      cursor: pointer;
+      white-space: nowrap;
+      flex-shrink: 0;
+      transition: background .2s, opacity .2s;
+      position: relative;
+    }
+    .wish-btn:hover { background: #3d4f9a; }
+    .wish-btn:disabled { opacity: .5; cursor: default; }
+    .wish-btn.loading { opacity: .7; }
+    .wish-btn.cooldown { background: var(--muted); }
+    .wish-btn.done { background: var(--success); }
+
+    /* ── Suche ── */
+    .search-bar {
+      position: relative;
+      margin-bottom: 1rem;
+    }
+    .search-bar input {
+      width: 100%;
+      padding: .85rem 1rem .85rem 2.75rem;
+      border: 2px solid #e0e5f5;
+      border-radius: .75rem;
+      font-size: 1rem;
+      background: var(--card);
+      color: var(--text);
+      outline: none;
+      transition: border-color .2s;
+    }
+    .search-bar input:focus { border-color: var(--light-blue); }
+    .search-bar .search-icon {
+      position: absolute;
+      left: .9rem;
+      top: 50%;
+      transform: translateY(-50%);
+      font-size: 1.1rem;
+      color: var(--muted);
+      pointer-events: none;
+    }
+
+    /* ── Leer-/Lade-Zustände ── */
+    .empty-state {
+      text-align: center;
+      padding: 2.5rem 1rem;
+      color: var(--muted);
+    }
+    .empty-state .icon { font-size: 2.5rem; margin-bottom: .5rem; }
+    .empty-state p { font-size: .9rem; }
+
+    .spinner {
+      display: inline-block;
+      width: 18px; height: 18px;
+      border: 2px solid rgba(255,255,255,.4);
+      border-top-color: white;
+      border-radius: 50%;
+      animation: spin .6s linear infinite;
+      vertical-align: middle;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Party-Fehler-Screen ── */
+    #error-screen {
+      display: none;
+      min-height: 100vh;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 2rem;
+      background: var(--blue);
+      color: white;
+    }
+    #error-screen.show { display: flex; flex-direction: column; }
+    #error-screen h2 { font-family: 'Berkshire Swash', Georgia, serif; font-size: 1.5rem; font-weight:400; margin-bottom: .75rem; }
+    #error-screen p { font-size: .9rem; color: var(--light-blue); max-width: 280px; }
+
+    #app { display: none; }
+    #app.show { display: block; }
+  </style>
+</head>
+<body>
+
+<!-- Fehler-Screen (Party nicht aktiv) -->
+<div id="error-screen">
+  <div style="font-size:3rem;margin-bottom:1rem">🎵</div>
+  <h2>GregorS Tanzschule</h2>
+  <p id="error-msg">Überprüfe deinen QR-Code oder frag unsere Tanzlehrer.</p>
+</div>
+
+<!-- Haupt-App -->
+<div id="app">
+  <header>
+    <h1>🎵 Musikwünsche</h1>
+    <p id="party-name">GregorS Tanzschule</p>
+  </header>
+
+  <div class="tabs">
+    <button class="tab-btn active" data-tab="playlists">Unsere Listen</button>
+    <button class="tab-btn" data-tab="search">Spotify Suche</button>
+  </div>
+
+  <!-- Tab: Unsere Listen -->
+  <div class="tab-content active" id="tab-playlists">
+    <div id="playlists-container">
+      <div class="empty-state">
+        <div class="icon">⏳</div>
+        <p>Playlisten werden geladen…</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tab: Suche -->
+  <div class="tab-content" id="tab-search">
+    <div class="search-bar">
+      <span class="search-icon">🔍</span>
+      <input type="search" id="search-input" placeholder="Titel, Artist oder Album suchen…" autocomplete="off">
+    </div>
+    <div id="search-results">
+      <div class="empty-state">
+        <div class="icon">🎶</div>
+        <p>Tippe einen Songnamen oder Artist ein</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+// ── Session ID ───────────────────────────────────────────────────────────────
+let SESSION_ID = localStorage.getItem('mw_session');
+if (!SESSION_ID) {
+  SESSION_ID = 'gs_' + Math.random().toString(36).slice(2) + Date.now().toString(36);
+  localStorage.setItem('mw_session', SESSION_ID);
+}
+
+// ── Party Token aus URL ──────────────────────────────────────────────────────
+const PARTY_TOKEN = new URLSearchParams(location.search).get('party') || '';
+
+// ── Cooldown State ───────────────────────────────────────────────────────────
+let cooldownUntil = 0;
+let cooldownInterval = null;
+
+// ── Hilfsfunktionen ──────────────────────────────────────────────────────────
+function api(path, opts = {}) {
+  const sep = path.includes('?') ? '&' : '?';
+  return fetch(`${path}${sep}party=${PARTY_TOKEN}`, {
+    headers: {
+      'Content-Type': 'application/json',
+      'x-party-token': PARTY_TOKEN
+    },
+    ...opts
+  }).then(async r => {
+    const data = await r.json();
+    if (!r.ok) throw Object.assign(new Error(data.error || 'Fehler'), { status: r.status, data });
+    return data;
+  });
+}
+
+let toastTimer;
+function showToast(msg, type = 'info', duration = 3000) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = `show ${type}`;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { t.className = ''; }, duration);
+}
+
+function makeTrackCard(track) {
+  const div = document.createElement('div');
+  div.className = 'track-card';
+  const img = track.image
+    ? `<img class="track-img" src="${track.image}" alt="" loading="lazy">`
+    : `<div class="track-img-placeholder">🎵</div>`;
+  div.innerHTML = `
+    ${img}
+    <div class="track-info">
+      <div class="track-name">${esc(track.name)}</div>
+      <div class="track-artist">${esc(track.artist)}</div>
+    </div>
+    <button class="wish-btn" data-uri="${track.uri}">♡ Wünschen</button>
+  `;
+  div.querySelector('.wish-btn').addEventListener('click', e => wishSong(e.currentTarget, track));
+  return div;
+}
+
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ── Wünschen ─────────────────────────────────────────────────────────────────
+async function wishSong(btn, track) {
+  // Cooldown prüfen (client-seitig)
+  const remaining = Math.ceil((cooldownUntil - Date.now()) / 1000);
+  if (remaining > 0) {
+    showToast(`Noch ${remaining}s warten ⏳`, 'warning');
+    return;
+  }
+
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>';
+
+  try {
+    await api('/api/wish', {
+      method: 'POST',
+      body: JSON.stringify({ trackUri: track.uri, sessionId: SESSION_ID })
+    });
+
+    // Erfolg
+    btn.className = 'wish-btn done';
+    btn.textContent = '✓ Gewünscht!';
+    showToast('🎵 Wunsch gesendet! Nächster Wunsch in 60s.', 'success', 4000);
+
+    // Cooldown starten
+    cooldownUntil = Date.now() + 60_000;
+    startCooldownTimer();
+
+  } catch (err) {
+    btn.disabled = false;
+    if (err.status === 429) {
+      const rem = err.data?.remaining || 60;
+      btn.className = 'wish-btn cooldown';
+      btn.textContent = `⏳ ${rem}s`;
+      cooldownUntil = Date.now() + rem * 1000;
+      startCooldownTimer();
+      showToast(err.message, 'warning');
+    } else {
+      btn.className = 'wish-btn';
+      btn.textContent = '♡ Wünschen';
+      showToast(err.message || 'Fehler aufgetreten', 'error', 5000);
+    }
+  }
+}
+
+function startCooldownTimer() {
+  clearInterval(cooldownInterval);
+  // Alle Wünschen-Buttons im Cooldown anzeigen
+  updateAllWishButtons();
+  cooldownInterval = setInterval(() => {
+    const rem = Math.ceil((cooldownUntil - Date.now()) / 1000);
+    if (rem <= 0) {
+      clearInterval(cooldownInterval);
+      updateAllWishButtons();
+    } else {
+      updateAllWishButtons(rem);
+    }
+  }, 1000);
+}
+
+function updateAllWishButtons(remaining = null) {
+  document.querySelectorAll('.wish-btn').forEach(btn => {
+    if (btn.classList.contains('done')) return;
+    if (remaining && remaining > 0) {
+      btn.disabled = true;
+      btn.className = 'wish-btn cooldown';
+      btn.textContent = `⏳ ${remaining}s`;
+    } else {
+      btn.disabled = false;
+      btn.className = 'wish-btn';
+      btn.textContent = '♡ Wünschen';
+    }
+  });
+}
+
+// ── Tabs ──────────────────────────────────────────────────────────────────────
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
+  });
+});
+
+// ── Playlisten laden ──────────────────────────────────────────────────────────
+async function loadPlaylists() {
+  const container = document.getElementById('playlists-container');
+  try {
+    const lists = await api('/api/playlists');
+    if (!lists.length) {
+      container.innerHTML = '<div class="empty-state"><div class="icon">🎵</div><p>Keine Tanz-Playlisten gefunden.</p></div>';
+      return;
+    }
+    container.innerHTML = '';
+    lists.forEach(pl => {
+      const item = document.createElement('div');
+      item.className = 'playlist-item';
+      const img = pl.image
+        ? `<img class="playlist-img" src="${pl.image}" alt="" loading="lazy">`
+        : `<div class="playlist-img-placeholder">💿</div>`;
+      item.innerHTML = `
+        <div class="playlist-header">
+          ${img}
+          <div class="playlist-info">
+            <div class="playlist-name">${esc(pl.name)}</div>
+            <div class="playlist-count">${pl.trackCount} Songs</div>
+          </div>
+          <span class="playlist-arrow">›</span>
+        </div>
+        <div class="track-list"></div>
+      `;
+      const header = item.querySelector('.playlist-header');
+      const trackList = item.querySelector('.track-list');
+      let loaded = false;
+
+      header.addEventListener('click', async () => {
+        item.classList.toggle('open');
+        if (!item.classList.contains('open')) return;
+        if (loaded) return;
+        loaded = true;
+        trackList.innerHTML = '<div class="track-loading">Lade Songs…</div>';
+        try {
+          const tracks = await api(`/api/playlist/${pl.id}/tracks`);
+          trackList.innerHTML = '';
+          if (!tracks.length) {
+            trackList.innerHTML = '<div class="track-loading">Keine Songs gefunden.</div>';
+            return;
+          }
+          tracks.forEach(t => trackList.appendChild(makeTrackCard(t)));
+        } catch (err) {
+          trackList.innerHTML = `<div class="track-loading" style="color:red">${esc(err.message)}</div>`;
+          loaded = false;
+        }
+      });
+
+      container.appendChild(item);
+    });
+  } catch (err) {
+    container.innerHTML = `<div class="empty-state"><div class="icon">⚠️</div><p>${esc(err.message)}</p></div>`;
+  }
+}
+
+// ── Suche ─────────────────────────────────────────────────────────────────────
+let searchTimer;
+const searchInput = document.getElementById('search-input');
+const searchResults = document.getElementById('search-results');
+
+searchInput.addEventListener('input', () => {
+  clearTimeout(searchTimer);
+  const q = searchInput.value.trim();
+  if (q.length < 2) {
+    searchResults.innerHTML = '<div class="empty-state"><div class="icon">🎶</div><p>Tippe einen Songnamen oder Artist ein</p></div>';
+    return;
+  }
+  searchResults.innerHTML = '<div class="empty-state"><div class="icon">⏳</div><p>Suche…</p></div>';
+  searchTimer = setTimeout(() => runSearch(q), 500);
+});
+
+async function runSearch(q) {
+  try {
+    const tracks = await api(`/api/search?q=${encodeURIComponent(q)}`);
+    searchResults.innerHTML = '';
+    if (!tracks.length) {
+      searchResults.innerHTML = '<div class="empty-state"><div class="icon">🔍</div><p>Keine Ergebnisse gefunden.</p></div>';
+      return;
+    }
+    tracks.forEach(t => searchResults.appendChild(makeTrackCard(t)));
+  } catch (err) {
+    searchResults.innerHTML = `<div class="empty-state"><div class="icon">⚠️</div><p>${esc(err.message)}</p></div>`;
+  }
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+async function init() {
+  if (!PARTY_TOKEN) {
+    document.getElementById('error-msg').textContent = 'Kein Party-Code gefunden. Bitte den QR-Code in der Tanzschule scannen.';
+    document.getElementById('error-screen').classList.add('show');
+    return;
+  }
+
+  try {
+    const status = await fetch(`/api/party/status?party=${PARTY_TOKEN}`).then(r => r.json());
+    if (!status.active) {
+      const msgs = {
+        no_party: 'Aktuell ist keine Party aktiv. Schau beim nächsten Event wieder rein!',
+        wrong_token: 'Dieser QR-Code ist nicht mehr gültig. Bitte einen aktuellen Code scannen.',
+        expired: 'Diese Party ist beendet. Wir hoffen, du hattest Spaß! 🕺'
+      };
+      document.getElementById('error-msg').textContent = msgs[status.reason] || 'Party nicht aktiv.';
+      document.getElementById('error-screen').classList.add('show');
+      return;
+    }
+
+    if (status.name) {
+      document.getElementById('party-name').textContent = status.name;
+    }
+
+    document.getElementById('app').classList.add('show');
+    loadPlaylists();
+
+  } catch {
+    document.getElementById('error-msg').textContent = 'Server nicht erreichbar. Bitte kurz warten und neu laden.';
+    document.getElementById('error-screen').classList.add('show');
+  }
+}
+
+init();
+</script>
+</body>
+</html>
