@@ -99,15 +99,19 @@
     #toast.error { background: var(--error); }
     #toast.warning { background: var(--warning); }
 
-    /* ── Playlist-Liste ── */
-    .playlist-item {
+    /* ── Tanzstil-Liste ── */
+    .dance-item {
       background: var(--card);
       border-radius: .75rem;
       margin-bottom: .75rem;
       overflow: hidden;
       box-shadow: 0 1px 4px rgba(0,0,0,.08);
+      transition: box-shadow .2s;
     }
-    .playlist-header {
+    .dance-item.open {
+      box-shadow: 0 3px 12px rgba(47,61,124,.15);
+    }
+    .dance-header {
       display: flex;
       align-items: center;
       gap: .75rem;
@@ -115,38 +119,36 @@
       cursor: pointer;
       user-select: none;
     }
-    .playlist-img {
+    .dance-emoji {
       width: 48px; height: 48px;
       border-radius: .4rem;
-      object-fit: cover;
-      background: #dde;
-      flex-shrink: 0;
-    }
-    .playlist-img-placeholder {
-      width: 48px; height: 48px;
-      border-radius: .4rem;
-      background: var(--light-blue);
+      background: var(--blue);
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 1.4rem;
+      font-size: 1.5rem;
       flex-shrink: 0;
     }
-    .playlist-info { flex: 1; min-width: 0; }
-    .playlist-name {
+    .dance-item.open .dance-emoji {
+      background: var(--light-blue);
+    }
+    .dance-info { flex: 1; min-width: 0; }
+    .dance-name {
       font-size: .95rem;
       font-weight: 600;
       color: var(--blue);
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
     }
-    .playlist-count { font-size: .78rem; color: var(--muted); }
-    .playlist-arrow {
-      font-size: 1rem;
+    .dance-sub { font-size: .78rem; color: var(--muted); }
+    .dance-arrow {
+      font-size: 1.1rem;
       color: var(--muted);
       flex-shrink: 0;
+      transition: transform .25s;
     }
+    .dance-item.open .dance-arrow { transform: rotate(90deg); }
+
+    .track-list { display: none; border-top: 1px solid #eef0f8; }
+    .dance-item.open .track-list { display: block; }
 
     .track-loading {
       text-align: center;
@@ -300,7 +302,7 @@
   </header>
 
   <div class="tabs">
-    <button class="tab-btn active" data-tab="playlists">Unsere Listen</button>
+    <button class="tab-btn active" data-tab="playlists">Tanzstile</button>
     <button class="tab-btn" data-tab="search">Spotify Suche</button>
   </div>
 
@@ -477,80 +479,96 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
   });
 });
 
-// ── Tanznamen aus Playlist-Name extrahieren ───────────────────────────────────
-function extractDanceName(name) {
-  const lower = name.toLowerCase();
-  // Längste zuerst (Mehrwort-Namen vor Einzelwörtern)
-  const dances = [
-    'wiener walzer', 'cha cha cha', 'cha cha', 'lindy hop', 'west coast swing',
-    'slow fox', 'paso doble', 'discofox', 'slowfox', 'quickstep', 'foxtrott',
-    'walzer', 'tango', 'samba', 'rumba', 'jive', 'bachata', 'salsa', 'merengue',
-    'kizomba', 'zouk', 'zumba', 'polka', 'boogie', 'swing', 'blues'
-  ];
-  for (const d of dances) {
-    if (lower.includes(d)) return d.charAt(0).toUpperCase() + d.slice(1);
-  }
-  // Fallback: Präfixe entfernen
-  return name.replace(/^(TidM|XX|ZZ|MDN|KDT|Xmas|80er|Country|Gregor|Probestunde|\d+_[\w]*)[\s\-_]+/i, '').trim() || name;
-}
+// ── Tanzstil-Liste (fest eingebaut, kein API-Call nötig) ──────────────────────
+const DANCE_LIST = [
+  { name: 'Walzer',          query: 'Langsamer Walzer',   emoji: '🩰' },
+  { name: 'Wiener Walzer',   query: 'Wiener Walzer',      emoji: '💃' },
+  { name: 'Tango',           query: 'Tango',              emoji: '🌹' },
+  { name: 'Quickstep',       query: 'Quickstep',          emoji: '⚡' },
+  { name: 'Foxtrott',        query: 'Slowfox Foxtrott',   emoji: '🦊' },
+  { name: 'Samba',           query: 'Samba',              emoji: '🥁' },
+  { name: 'Cha Cha',         query: 'Cha Cha',            emoji: '💫' },
+  { name: 'Rumba',           query: 'Rumba',              emoji: '❤️' },
+  { name: 'Paso Doble',      query: 'Paso Doble',         emoji: '🎺' },
+  { name: 'Jive',            query: 'Jive',               emoji: '🎸' },
+  { name: 'Discofox',        query: 'Discofox',           emoji: '🪩' },
+  { name: 'Bachata',         query: 'Bachata',            emoji: '🎵' },
+  { name: 'Salsa',           query: 'Salsa',              emoji: '🌶️' },
+  { name: 'Merengue',        query: 'Merengue',           emoji: '🎶' },
+  { name: 'Lindy Hop',       query: 'Lindy Hop Swing',    emoji: '🎷' },
+  { name: 'West Coast Swing',query: 'West Coast Swing',   emoji: '🤠' },
+  { name: 'Kizomba',         query: 'Kizomba',            emoji: '🌙' },
+  { name: 'Zouk',            query: 'Brazilian Zouk',     emoji: '🌊' },
+];
 
-// ── In Suche wechseln und suchen ──────────────────────────────────────────────
-function switchToSearch(query) {
-  // Tab wechseln
-  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-  document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-  document.querySelector('[data-tab="search"]').classList.add('active');
-  document.getElementById('tab-search').classList.add('active');
-  // Suche befüllen und starten
-  const input = document.getElementById('search-input');
-  input.value = query;
-  searchResults.innerHTML = '<div class="empty-state"><div class="icon">⏳</div><p>Suche…</p></div>';
-  runSearch(query);
-}
-
-// ── Playlisten laden ──────────────────────────────────────────────────────────
-async function loadPlaylists() {
+// ── Tanzstile aufbauen (statisch, keine API) ──────────────────────────────────
+function loadPlaylists() {
   const container = document.getElementById('playlists-container');
-  try {
-    const lists = await api('/api/playlists');
-    if (!lists.length) {
-      container.innerHTML = '<div class="empty-state"><div class="icon">🎵</div><p>Keine Tanz-Playlisten gefunden.</p></div>';
-      return;
-    }
+  container.innerHTML = '';
+  let openItem = null; // immer nur ein Tanzstil offen
 
-    // Erklärung oben
-    const hint = document.createElement('p');
-    hint.style.cssText = 'font-size:.82rem;color:var(--muted);margin-bottom:.75rem;text-align:center';
-    hint.textContent = '💡 Playlist antippen → zeigt passende Songs';
-    container.innerHTML = '';
-    container.appendChild(hint);
-
-    lists.forEach(pl => {
-      const item = document.createElement('div');
-      item.className = 'playlist-item';
-      item.style.cursor = 'pointer';
-      const img = pl.image
-        ? `<img class="playlist-img" src="${pl.image}" alt="" loading="lazy">`
-        : `<div class="playlist-img-placeholder">💿</div>`;
-      item.innerHTML = `
-        <div class="playlist-header">
-          ${img}
-          <div class="playlist-info">
-            <div class="playlist-name">${esc(pl.name)}</div>
-            <div class="playlist-count">${pl.trackCount > 0 ? pl.trackCount + ' Songs' : 'Spotify Suche'}</div>
-          </div>
-          <span class="playlist-arrow">🔍</span>
+  DANCE_LIST.forEach(dance => {
+    const item = document.createElement('div');
+    item.className = 'dance-item';
+    item.innerHTML = `
+      <div class="dance-header">
+        <div class="dance-emoji">${dance.emoji}</div>
+        <div class="dance-info">
+          <div class="dance-name">${esc(dance.name)}</div>
+          <div class="dance-sub">Antippen → Songs laden</div>
         </div>
-      `;
-      item.addEventListener('click', () => {
-        const query = extractDanceName(pl.name);
-        switchToSearch(query);
-      });
-      container.appendChild(item);
+        <span class="dance-arrow">›</span>
+      </div>
+      <div class="track-list"></div>
+    `;
+
+    const header = item.querySelector('.dance-header');
+    const trackList = item.querySelector('.track-list');
+    const sub = item.querySelector('.dance-sub');
+    let loaded = false;
+
+    header.addEventListener('click', async () => {
+      const isOpen = item.classList.contains('open');
+
+      // Anderen schließen
+      if (openItem && openItem !== item) {
+        openItem.classList.remove('open');
+      }
+
+      if (isOpen) {
+        item.classList.remove('open');
+        openItem = null;
+        return;
+      }
+
+      item.classList.add('open');
+      openItem = item;
+
+      // Noch nicht geladen → Suche starten
+      if (!loaded) {
+        loaded = true;
+        sub.textContent = 'Lade Songs…';
+        trackList.innerHTML = '<div class="track-loading"><span class="spinner" style="border-color:rgba(47,61,124,.3);border-top-color:var(--blue)"></span></div>';
+        try {
+          const tracks = await api(`/api/search?q=${encodeURIComponent(dance.query)}`);
+          trackList.innerHTML = '';
+          if (!tracks.length) {
+            trackList.innerHTML = '<div class="track-loading">Keine Ergebnisse gefunden.</div>';
+            sub.textContent = '0 Songs';
+            return;
+          }
+          tracks.forEach(t => trackList.appendChild(makeTrackCard(t)));
+          sub.textContent = `${tracks.length} Songs`;
+        } catch (err) {
+          trackList.innerHTML = `<div class="track-loading" style="color:var(--error)">${esc(err.message)}</div>`;
+          sub.textContent = 'Fehler beim Laden';
+          loaded = false; // retry beim nächsten Öffnen
+        }
+      }
     });
-  } catch (err) {
-    container.innerHTML = `<div class="empty-state"><div class="icon">⚠️</div><p>${esc(err.message)}</p></div>`;
-  }
+
+    container.appendChild(item);
+  });
 }
 
 // ── Suche ─────────────────────────────────────────────────────────────────────
