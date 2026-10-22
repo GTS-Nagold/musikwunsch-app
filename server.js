@@ -131,12 +131,8 @@ app.get('/api/search', requireParty, async (req, res) => {
   try {
     res.json(await spotify.search(q));
   } catch (err) {
-    console.error('Suche:', err.message, err.response?.data);
-    res.status(500).json({
-      error: err.message,
-      spotifyStatus: err.response?.status,
-      spotifyBody: err.response?.data
-    });
+    console.error('Suche:', err.message);
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -202,26 +198,6 @@ app.post('/api/wish', requireParty, async (req, res) => {
       error: (s === 404 || s === 400)
         ? 'Keine aktive Wiedergabe. Bitte Musik auf dem Tanzschul-Gerät starten.'
         : err.message
-    });
-  }
-});
-
-// ── Debug (temporär) ─────────────────────────────────────────────────────────
-app.get('/admin/debug-spotify', requireAdmin, async (req, res) => {
-  try {
-    const headers = await spotify._headers();
-    const axios = require('axios');
-    const result = await axios.get('https://api.spotify.com/v1/search', {
-      headers,
-      params: { q: 'test', type: 'track', limit: 1 }
-    });
-    res.json({ ok: true, status: result.status, first: result.data?.tracks?.items?.[0]?.name });
-  } catch (err) {
-    res.json({
-      ok: false,
-      axiosMessage: err.message,
-      spotifyStatus: err.response?.status,
-      spotifyBody: err.response?.data
     });
   }
 });
