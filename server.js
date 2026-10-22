@@ -91,11 +91,12 @@ app.get('/callback', async (req, res) => {
       a{color:#2f3d7c}</style></head><body>
       <h2>✅ Spotify erfolgreich verbunden!</h2>
       <div class="box">
-        <p><strong>Refresh Token (in Railway als Env-Variable eintragen):</strong></p>
-        <code>${data.refresh_token || spotify.refreshToken || '(bereits gespeichert)'}</code>
-        <p style="margin-top:1rem;font-size:.85em;color:#666">
-          Kopiere diesen Wert und trage ihn in Railway als<br>
-          <code>SPOTIFY_REFRESH_TOKEN</code> ein.
+        <p><strong>Refresh Token (in Render als Env-Variable eintragen):</strong></p>
+        <code id="rt" style="display:block;padding:.75rem;margin:.5rem 0;cursor:pointer" onclick="navigator.clipboard.writeText(this.innerText);this.style.background='#d4edda';this.innerText='✓ Kopiert!';setTimeout(()=>{this.style.background='#eee';this.innerText=rt},1500)" title="Klicken zum Kopieren">${data.refresh_token || spotify.refreshToken || '(bereits gespeichert)'}</code>
+        <script>const rt = document.getElementById('rt').innerText</script>
+        <p style="margin-top:.5rem;font-size:.85em;color:#666">
+          ↑ Einmal klicken zum Kopieren, dann in Render unter<br>
+          <code>SPOTIFY_REFRESH_TOKEN</code> einfügen und Save klicken.
         </p>
       </div>
       <p><a href="/admin">→ Zum Admin-Bereich</a></p>
