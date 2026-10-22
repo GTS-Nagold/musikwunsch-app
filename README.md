@@ -10,6 +10,7 @@ Gäste scannen einen QR-Code und wünschen Songs direkt in die Spotify-Queue –
 - Session-System: QR-Scan = Zeitfenster (z.B. 60 Min.), dann erneut scannen nötig
 - Admin-Panel: Party starten/stoppen, QR-Code anzeigen
 - Fester QR-Code – einmal ausdrucken, für jede Party verwenden
+- **Claude-Integration:** Queue abfragen, Farben ändern und Party steuern per KI-Assistent
 
 ---
 
@@ -153,6 +154,89 @@ Ab jetzt ist Spotify dauerhaft verbunden – dieser Schritt muss nie wiederholt 
 2. `/admin` öffnen → **„Party starten"** (Partyname + Session-Dauer eingeben)
 3. QR-Code hängt bereits aus → Gäste können sofort wünschen
 4. Nach der Party: **„Party beenden"** → QR-Code funktioniert wieder nicht
+
+---
+
+## Claude-Integration (optional)
+
+Die App hat eine eingebaute Admin-API, mit der du sie über den KI-Assistenten **Claude** steuern kannst – ohne Browser, einfach per Text.
+
+### Was Claude damit kann
+
+| Befehl | Was passiert |
+|---|---|
+| „Zeig mir die Queue" | Aktuelle Spotify-Warteschlange als Liste |
+| „Mach die Farbe dunkelgrün" | Ändert `config.json`, deployt automatisch |
+| „Starte die Party" | Party-Token aktivieren, QR-Code wird gültig |
+| „Stopp die Party" | Alle Sessions beenden, QR-Code deaktivieren |
+| „Wie ist der App-Status?" | Spotify verbunden? Wiedergabe aktiv? Party läuft? |
+
+### Voraussetzung: Claude Code
+
+Die Integration funktioniert mit **[Claude Code](https://claude.ai/code)** – dem KI-Assistenten von Anthropic, der direkt auf deinem Mac läuft und Terminal-Befehle ausführen kann.
+
+### Einrichtung
+
+**1. Skill-Datei anlegen**
+
+Erstelle in deinem bevorzugten Notiz-Tool (z.B. Obsidian) eine Datei `Musikwunsch App Skill.md` mit folgendem Inhalt:
+
+```markdown
+# Skill: Musikwunsch App
+
+Trigger: musikwunsch, queue, app farben, party starten
+
+## Setup
+ENV=~/projects/musikwunsch-app/.env
+APP_URL=$(grep APP_URL $ENV | cut -d= -f2)
+ADMIN_PW=$(grep ADMIN_PASSWORD $ENV | cut -d= -f2)
+
+## Queue anzeigen
+source ~/projects/musikwunsch-app/.env
+curl -s "$APP_URL/admin/queue" -H "x-admin-password: $ADMIN_PASSWORD"
+
+## Farben ändern
+# 1. ~/projects/musikwunsch-app/config.json bearbeiten
+# 2. git add config.json && git commit -m "Farbe geändert" && git push
+
+## Party starten
+curl -s -X POST "$APP_URL/admin/party/start" \
+  -H "x-admin-password: $ADMIN_PASSWORD" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "Tanzparty", "sessionDurationMinutes": 60}'
+
+## Party stoppen
+curl -s -X POST "$APP_URL/admin/party/stop" \
+  -H "x-admin-password: $ADMIN_PASSWORD"
+
+## Status
+curl -s "$APP_URL/admin/status" -H "x-admin-password: $ADMIN_PASSWORD"
+```
+
+**2. `.env`-Datei anlegen** (liegt bereits im Projektordner, nicht in GitHub)
+
+```
+APP_URL=https://DEINE-RENDER-URL
+ADMIN_PASSWORD=dein-admin-passwort
+```
+
+**3. Claude anweisen**
+
+Sage Claude bei Session-Start: *„Wenn ich 'musikwunsch' oder 'queue' sage, lies den Skill und führe ihn aus."*
+
+### Admin-API – Endpunkte
+
+Alle Endpunkte erfordern den Header `x-admin-password: DEIN-PASSWORT`.
+
+| Endpunkt | Methode | Beschreibung |
+|---|---|---|
+| `/admin/status` | GET | Spotify- & Party-Status |
+| `/admin/queue` | GET | Aktuelle Song-Warteschlange |
+| `/admin/party/start` | POST | Party starten |
+| `/admin/party/stop` | POST | Party beenden |
+| `/admin/config` | POST | Farben/Name sofort live ändern* |
+
+*`/admin/config` wirkt sofort, wird aber beim nächsten Render-Neustart zurückgesetzt. Für dauerhafte Änderungen immer auch `config.json` in GitHub committen.
 
 ---
 
