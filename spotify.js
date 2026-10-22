@@ -257,10 +257,44 @@ class SpotifyClient {
   }
 
   async debugPlaylist(playlistId) {
-    const h = await this._appHeaders();
-    const url = `https://api.spotify.com/v1/playlists/${encodeURIComponent(playlistId)}/tracks`;
-    const resp = await axios.get(url, { headers: h });
-    return { status: 200, tokenType: 'client_credentials', items: resp.data.items?.length, total: resp.data.total };
+    const appH = await this._appHeaders();
+    const userH = await this._headers();
+    const id = playlistId; // kein encodeURIComponent für den Test
+    const results = {};
+
+    // Test 1: /playlists/{id} (Basis-Info, kein /tracks)
+    try {
+      const r = await axios.get(`https://api.spotify.com/v1/playlists/${id}`, { headers: appH });
+      results.playlistInfo_appToken = { ok: true, name: r.data.name, tracks: r.data.tracks?.total };
+    } catch (e) {
+      results.playlistInfo_appToken = { ok: false, status: e.response?.status, error: e.response?.data?.error?.message || e.message };
+    }
+
+    // Test 2: /playlists/{id}/tracks mit App-Token
+    try {
+      const r = await axios.get(`https://api.spotify.com/v1/playlists/${id}/tracks`, { headers: appH });
+      results.tracks_appToken = { ok: true, count: r.data.items?.length };
+    } catch (e) {
+      results.tracks_appToken = { ok: false, status: e.response?.status, error: e.response?.data?.error?.message || e.message };
+    }
+
+    // Test 3: /playlists/{id}/tracks mit market=DE (App-Token)
+    try {
+      const r = await axios.get(`https://api.spotify.com/v1/playlists/${id}/tracks`, { headers: appH, params: { market: 'DE' } });
+      results.tracks_market_DE = { ok: true, count: r.data.items?.length };
+    } catch (e) {
+      results.tracks_market_DE = { ok: false, status: e.response?.status, error: e.response?.data?.error?.message || e.message };
+    }
+
+    // Test 4: /playlists/{id}/tracks mit User-Token + market=DE
+    try {
+      const r = await axios.get(`https://api.spotify.com/v1/playlists/${id}/tracks`, { headers: userH, params: { market: 'DE' } });
+      results.tracks_userToken_DE = { ok: true, count: r.data.items?.length };
+    } catch (e) {
+      results.tracks_userToken_DE = { ok: false, status: e.response?.status, error: e.response?.data?.error?.message || e.message };
+    }
+
+    return results;
   }
 }
 
