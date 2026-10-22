@@ -163,8 +163,9 @@ app.post('/api/wish-by-name', requireParty, async (req, res) => {
     res.json({ success: true, matched: { name: track.name, artist: track.artist } });
   } catch (err) {
     console.error('Wish-by-name:', err.message);
+    const s = err.response?.status;
     res.status(500).json({
-      error: err.response?.status === 404
+      error: (s === 404 || s === 400)
         ? 'Keine aktive Wiedergabe. Bitte Musik auf dem Tanzschul-Gerät starten.'
         : err.message
     });
@@ -192,8 +193,9 @@ app.post('/api/wish', requireParty, async (req, res) => {
     res.json({ success: true });
   } catch (err) {
     console.error('Wish:', err.message);
+    const s = err.response?.status;
     res.status(500).json({
-      error: err.response?.status === 404
+      error: (s === 404 || s === 400)
         ? 'Keine aktive Wiedergabe. Bitte Musik auf dem Tanzschul-Gerät starten.'
         : err.message
     });
