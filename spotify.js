@@ -132,20 +132,26 @@ class SpotifyClient {
 
   async getPlaylistTracks(playlistId) {
     const h = await this._headers();
-    // Kein fields-Parameter – Spotify blockt manchmal eingeschränkte Felder
-    let url = `https://api.spotify.com/v1/playlists/${playlistId}/tracks?limit=100`;
+    let url = `https://api.spotify.com/v1/playlists/${encodeURIComponent(playlistId)}/tracks`;
     const tracks = [];
     while (url) {
-      const resp = await axios.get(url, { headers: h });
-      const items = (resp.data.items || []).filter(i => i.track?.id && !i.track.is_local);
-      tracks.push(...items.map(i => ({
-        id: i.track.id,
-        uri: i.track.uri,
-        name: i.track.name,
-        artist: (i.track.artists || []).map(a => a.name).join(', '),
-        image: i.track.album?.images?.[2]?.url || i.track.album?.images?.[0]?.url || null
-      })));
-      url = resp.data.next;
+      try {
+        const resp = await axios.get(url, { headers: h });
+        const items = (resp.data.items || []).filter(i => i.track?.id && !i.track.is_local);
+        tracks.push(...items.map(i => ({
+          id: i.track.id,
+          uri: i.track.uri,
+          name: i.track.name,
+          artist: (i.track.artists || []).map(a => a.name).join(', '),
+          image: i.track.album?.images?.[2]?.url || i.track.album?.images?.[0]?.url || null
+        })));
+        url = resp.data.next;
+      } catch (err) {
+        const spotifyMsg = err.response?.data?.error?.message;
+        const status = err.response?.status;
+        console.error(`Spotify Track-Fehler ${status} für Playlist ${playlistId}:`, spotifyMsg || err.message);
+        throw new Error(spotifyMsg ? `Spotify: ${spotifyMsg}` : `Playlist konnte nicht geladen werden (${status})`);
+      }
     }
     return tracks;
   }
@@ -155,7 +161,7 @@ class SpotifyClient {
     try {
       const resp = await axios.get('https://api.spotify.com/v1/search', {
         headers: h,
-        params: { q: query, type: 'track', limit: 20 }
+        params: { q: query, type: 'track' }
       });
       return (resp.data.tracks?.items || []).map(t => ({
         id: t.id,
