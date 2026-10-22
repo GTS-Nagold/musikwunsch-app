@@ -209,6 +209,19 @@ class SpotifyClient {
     // Cache invalidieren
     this._queueCache = null;
   }
+
+  async getMe() {
+    const h = await this._headers();
+    const resp = await axios.get('https://api.spotify.com/v1/me', { headers: h });
+    return resp.data;
+  }
+
+  async debugPlaylist(playlistId) {
+    const h = await this._headers();
+    const url = `https://api.spotify.com/v1/playlists/${encodeURIComponent(playlistId)}/tracks?limit=1`;
+    const resp = await axios.get(url, { headers: h });
+    return { status: 200, items: resp.data.items?.length, total: resp.data.total };
+  }
 }
 
 module.exports = SpotifyClient;

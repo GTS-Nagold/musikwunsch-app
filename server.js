@@ -247,6 +247,63 @@ app.get('/admin/playlists', requireAdmin, async (req, res) => {
   }
 });
 
+// Debug: Spotify-Account + Scopes + Playlist-Test (nur Admin)
+app.get('/debug', requireAdmin, async (req, res) => {
+  const result = { timestamp: new Date().toISOString() };
+
+  // 1. Spotify Account-Infos + Scopes
+  try {
+    const me = await spotify.getMe();
+    result.account = {
+      id: me.id,
+      displayName: me.display_name,
+      email: me.email,
+      product: me.product  // "premium" oder "free"
+    };
+  } catch (err) {
+    result.account = { error: err.response?.data?.error?.message || err.message };
+  }
+
+  // 2. Alle gefilterten Playlisten anzeigen (IDs + ob privat)
+  try {
+    const all = await spotify.getAllPlaylists();
+    result.allPlaylists = all
+      .filter(p => p?.name)
+      .map(p => ({
+        id: p.id,
+        name: p.name,
+        public: p.public,
+        collaborative: p.collaborative,
+        owner: p.owner?.id,
+        tracks: p.tracks?.total
+      }));
+
+    const DANCE_FILTER = DANCE_NAMES;
+    result.dancePlaylists = result.allPlaylists.filter(p =>
+      DANCE_FILTER.some(d => p.name.toLowerCase().includes(d.toLowerCase()))
+    );
+  } catch (err) {
+    result.playlistsError = err.response?.data?.error?.message || err.message;
+  }
+
+  // 3. Ersten Tanz-Playlist-Track-Fetch testen
+  if (result.dancePlaylists?.length > 0) {
+    const testPlaylist = result.dancePlaylists[0];
+    result.trackTest = { playlistId: testPlaylist.id, playlistName: testPlaylist.name };
+    try {
+      const r = await spotify.debugPlaylist(testPlaylist.id);
+      result.trackTest.success = true;
+      result.trackTest.result = r;
+    } catch (err) {
+      result.trackTest.success = false;
+      result.trackTest.status = err.response?.status;
+      result.trackTest.error = err.response?.data?.error?.message || err.message;
+    }
+  }
+
+  res.json(result);
+});
+
 // ── Admin HTML direkt ausliefern ────────────────────────────────────────────
 app.get('/admin', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'admin.html'));
