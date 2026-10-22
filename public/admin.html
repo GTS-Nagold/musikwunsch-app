@@ -108,18 +108,6 @@
       border-radius: .4rem;
     }
 
-    /* Playlist preview */
-    #playlist-preview { margin-top: .75rem; }
-    .pl-pill {
-      display: inline-block;
-      background: #e8eaf6;
-      color: var(--blue);
-      padding: .25rem .65rem;
-      border-radius: 1rem;
-      font-size: .78rem;
-      margin: .2rem;
-    }
-
     /* Toast */
     #admin-toast {
       position: fixed; bottom: 1.5rem; left: 50%;
@@ -185,8 +173,13 @@
         <input type="text" id="party-name-input" placeholder="z.B. Herbst-Tanzparty 2026" value="Tanzparty">
       </div>
       <div class="form-group">
-        <label>Dauer in Stunden (leer = unbegrenzt)</label>
+        <label>Party-Dauer in Stunden (leer = unbegrenzt)</label>
         <input type="number" id="party-duration" placeholder="z.B. 5" min="1" max="24">
+      </div>
+      <div class="form-group">
+        <label>Gäste-Session nach QR-Scan (Minuten)</label>
+        <input type="number" id="session-duration" placeholder="60" min="15" max="480" value="60">
+        <p style="font-size:.75rem;color:#888;margin-top:.3rem">Nach Ablauf müssen Gäste den QR-Code erneut scannen.</p>
       </div>
       <button class="btn btn-success btn-full" onclick="startParty()">🎉 Party starten & QR-Code generieren</button>
     </div>
@@ -198,6 +191,7 @@
         <h4 id="active-party-name">Party-Name</h4>
         <p id="active-party-started"></p>
         <p id="active-party-expires"></p>
+        <p id="active-party-session" style="margin-top:.25rem"></p>
       </div>
 
       <div id="qr-wrapper"></div>
@@ -205,17 +199,6 @@
 
       <div style="margin-top:1rem">
         <button class="btn btn-danger btn-full" onclick="stopParty()">🛑 Party beenden</button>
-      </div>
-    </div>
-
-    <!-- Playlist-Vorschau -->
-    <div class="card">
-      <h3>📋 Erkannte Tanz-Playlisten</h3>
-      <p style="font-size:.82rem;color:#666;margin-bottom:.75rem">
-        Alle Playlisten, die einen Tanznamen im Titel enthalten – diese sehen die Gäste.
-      </p>
-      <div id="playlist-preview">
-        <span style="font-size:.85rem;color:#999">Wird nach Login geladen…</span>
       </div>
     </div>
 
@@ -259,7 +242,6 @@ async function login() {
     await loadStatus();
     document.getElementById('login-screen').style.display = 'none';
     document.getElementById('admin-panel').style.display = 'block';
-    loadPlaylists();
   } catch {
     toast('Falsches Passwort', 'error');
     ADMIN_PASSWORD = '';
@@ -319,6 +301,8 @@ function showActiveParty(party, url) {
   } else {
     document.getElementById('active-party-expires').textContent = 'Läuft bis manuell gestoppt.';
   }
+  const sessionMin = Math.round((party.sessionDurationMs || 3600000) / 60000);
+  document.getElementById('active-party-session').textContent = `⏱ Gäste-Session: ${sessionMin} Min. nach QR-Scan`;
 
   // URL rekonstruieren wenn nicht übergeben
   if (!url) {
@@ -337,10 +321,15 @@ function showActiveParty(party, url) {
 async function startParty() {
   const name = document.getElementById('party-name-input').value.trim() || 'Tanzparty';
   const durationHours = document.getElementById('party-duration').value || null;
+  const sessionDurationMinutes = document.getElementById('session-duration').value || 60;
   try {
     const data = await api('/admin/party/start', {
       method: 'POST',
-      body: JSON.stringify({ name, durationHours: durationHours ? Number(durationHours) : null })
+      body: JSON.stringify({
+        name,
+        durationHours: durationHours ? Number(durationHours) : null,
+        sessionDurationMinutes: Number(sessionDurationMinutes)
+      })
     });
     showActiveParty(data.party, data.url);
     toast('Party gestartet! QR-Code ist bereit.', 'success');
@@ -358,22 +347,6 @@ async function stopParty() {
     toast('Party beendet.', '');
   } catch (err) {
     toast(err.message, 'error');
-  }
-}
-
-async function loadPlaylists() {
-  const container = document.getElementById('playlist-preview');
-  try {
-    const lists = await api('/admin/playlists');
-    if (!lists.length) {
-      container.innerHTML = '<span style="font-size:.85rem;color:#999">Keine Tanz-Playlisten gefunden.</span>';
-      return;
-    }
-    container.innerHTML = lists.map(p =>
-      `<span class="pl-pill">💿 ${p.name} <span style="opacity:.6">(${p.trackCount})</span></span>`
-    ).join('');
-  } catch (err) {
-    container.innerHTML = `<span style="font-size:.85rem;color:red">${err.message}</span>`;
   }
 }
 

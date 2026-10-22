@@ -40,15 +40,20 @@ const PLAYLIST_BLOCKLIST = [
 
 // ── In-Memory State ─────────────────────────────────────────────────────────
 let activeParty = null;
-// { token, name, startedAt, expiresAt|null }
+// { token, name, startedAt, expiresAt|null, sessionDurationMs }
 
 const guestCooldowns = new Map(); // sessionId → timestamp
 const COOLDOWN_MS = 60_000;
+
+const guestSessions = new Map(); // sessionId → checkinTimestamp
+const DEFAULT_SESSION_MS = 60 * 60_000; // 60 Minuten Standard
 
 // ── Middleware ──────────────────────────────────────────────────────────────
 
 function requireParty(req, res, next) {
   const token = req.query.party || req.headers['x-party-token'];
+  const sessionId = req.headers['x-session-id'];
+
   if (!activeParty) {
     return res.status(403).json({ error: 'Keine Party aktiv. Bitte den QR-Code an der Tanzschule scannen.' });
   }
@@ -59,6 +64,19 @@ function requireParty(req, res, next) {
     activeParty = null;
     return res.status(403).json({ error: 'Diese Party ist beendet.' });
   }
+
+  // Session-Check: QR-Scan muss innerhalb der Sitzungsdauer liegen
+  if (sessionId) {
+    const checkin = guestSessions.get(sessionId);
+    const duration = activeParty.sessionDurationMs || DEFAULT_SESSION_MS;
+    if (!checkin || Date.now() - checkin > duration) {
+      return res.status(403).json({
+        error: 'Deine Session ist abgelaufen. Bitte QR-Code neu scannen.',
+        reason: 'session_expired'
+      });
+    }
+  }
+
   next();
 }
 
@@ -120,6 +138,34 @@ app.get('/callback', async (req, res) => {
 });
 
 // ── Gast-API ────────────────────────────────────────────────────────────────
+
+// Gast-Checkin: QR-Scan startet/erneuert die 1h-Session
+app.post('/api/party/checkin', (req, res) => {
+  const token = req.query.party || req.headers['x-party-token'];
+  const { sessionId } = req.body;
+
+  if (!activeParty || activeParty.token !== token) {
+    return res.status(403).json({ error: 'Keine aktive Party.' });
+  }
+  if (activeParty.expiresAt && Date.now() > activeParty.expiresAt) {
+    activeParty = null;
+    return res.status(403).json({ error: 'Diese Party ist beendet.' });
+  }
+  if (!sessionId) return res.status(400).json({ error: 'Fehlende sessionId.' });
+
+  guestSessions.set(sessionId, Date.now());
+
+  // Alte Sessions aufräumen
+  if (guestSessions.size > 5000) {
+    const cutoff = Date.now() - (activeParty.sessionDurationMs || DEFAULT_SESSION_MS);
+    for (const [id, ts] of guestSessions) {
+      if (ts < cutoff) guestSessions.delete(id);
+    }
+  }
+
+  const duration = activeParty.sessionDurationMs || DEFAULT_SESSION_MS;
+  res.json({ success: true, expiresAt: Date.now() + duration, sessionDurationMs: duration });
+});
 
 // Party-Status prüfen (kein Admin nötig, nur Token)
 app.get('/api/party/status', (req, res) => {
@@ -282,17 +328,19 @@ app.get('/admin/status', requireAdmin, async (req, res) => {
 
 // Party starten
 app.post('/admin/party/start', requireAdmin, (req, res) => {
-  const { name, durationHours } = req.body;
-  const token = crypto.randomBytes(3).toString('hex'); // z.B. "a3f9c1"
+  const { name, durationHours, sessionDurationMinutes } = req.body;
+  const token = crypto.randomBytes(3).toString('hex');
   activeParty = {
     token,
     name: (name || 'Party').trim(),
     startedAt: Date.now(),
-    expiresAt: durationHours ? Date.now() + Number(durationHours) * 3_600_000 : null
+    expiresAt: durationHours ? Date.now() + Number(durationHours) * 3_600_000 : null,
+    sessionDurationMs: (Number(sessionDurationMinutes) || 60) * 60_000
   };
   guestCooldowns.clear();
+  guestSessions.clear();
   const url = `${process.env.APP_URL}/?party=${token}`;
-  console.log(`🎉 Party gestartet: "${activeParty.name}" – Token: ${token}`);
+  console.log(`🎉 Party gestartet: "${activeParty.name}" – Token: ${token} – Session: ${sessionDurationMinutes || 60} Min.`);
   res.json({ success: true, party: activeParty, url });
 });
 
@@ -301,6 +349,7 @@ app.post('/admin/party/stop', requireAdmin, (req, res) => {
   const name = activeParty?.name || '–';
   activeParty = null;
   guestCooldowns.clear();
+  guestSessions.clear();
   console.log(`🛑 Party beendet: "${name}"`);
   res.json({ success: true });
 });

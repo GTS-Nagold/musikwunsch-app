@@ -294,6 +294,16 @@
   <p id="error-msg">Überprüfe deinen QR-Code oder frag unsere Tanzlehrer.</p>
 </div>
 
+<!-- Session-Abgelaufen-Screen -->
+<div id="expired-screen" style="display:none;min-height:100vh;align-items:center;justify-content:center;text-align:center;padding:2rem;background:var(--blue);color:white;flex-direction:column">
+  <div style="font-size:3rem;margin-bottom:1rem">🕐</div>
+  <h2 style="font-family:'Berkshire Swash',Georgia,serif;font-size:1.5rem;font-weight:400;margin-bottom:.75rem">Session abgelaufen</h2>
+  <p style="font-size:.9rem;color:var(--light-blue);max-width:280px;margin-bottom:1.5rem">
+    Scanne den QR-Code in der Tanzschule erneut, um wieder Musikwünsche senden zu können.
+  </p>
+  <p style="font-size:.75rem;color:rgba(255,255,255,.4)">Der QR-Code hängt an der Tanzfläche.</p>
+</div>
+
 <!-- Haupt-App -->
 <div id="app">
   <header>
@@ -354,14 +364,25 @@ function api(path, opts = {}) {
   return fetch(`${path}${sep}party=${PARTY_TOKEN}`, {
     headers: {
       'Content-Type': 'application/json',
-      'x-party-token': PARTY_TOKEN
+      'x-party-token': PARTY_TOKEN,
+      'x-session-id': SESSION_ID
     },
     ...opts
   }).then(async r => {
     const data = await r.json();
-    if (!r.ok) throw Object.assign(new Error(data.error || 'Fehler'), { status: r.status, data });
+    if (!r.ok) {
+      if (r.status === 403 && data.reason === 'session_expired') {
+        showExpiredScreen();
+      }
+      throw Object.assign(new Error(data.error || 'Fehler'), { status: r.status, data });
+    }
     return data;
   });
+}
+
+function showExpiredScreen() {
+  document.getElementById('app').style.display = 'none';
+  document.getElementById('expired-screen').style.display = 'flex';
 }
 
 let toastTimer;
@@ -671,6 +692,13 @@ async function init() {
     if (status.name) {
       document.getElementById('party-name').textContent = status.name;
     }
+
+    // Gast-Checkin: startet/erneuert die Session (Zeitfenster läuft ab QR-Scan)
+    await fetch(`/api/party/checkin?party=${PARTY_TOKEN}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-party-token': PARTY_TOKEN },
+      body: JSON.stringify({ sessionId: SESSION_ID })
+    });
 
     document.getElementById('app').classList.add('show');
     loadPlaylists();
