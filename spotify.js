@@ -96,9 +96,9 @@ class SpotifyClient {
   }
 
   async search(query) {
-    const resp = await axios.get('https://api.spotify.com/v1/search', {
-      headers: await this._headers(),
-      params: { q: query, type: 'track', limit: '20' }
+    const url = `https://api.spotify.com/v1/search?q=${encodeURIComponent(query)}&type=track&limit=20`;
+    const resp = await axios.get(url, {
+      headers: await this._headers()
     });
     return (resp.data.tracks?.items || []).map(t => ({
       id: t.id,
