@@ -28,32 +28,34 @@ const spotify = new SpotifyClient();
 let activeParty = null;
 // { token, name, startedAt, expiresAt|null, sessionDurationMs }
 
-const guestCooldowns = new Map(); // sessionId → timestamp
-const COOLDOWN_MS = 60_000; // 60 Sekunden zwischen Wünschen
+const guestCooldowns  = new Map(); // sessionId → timestamp
+const COOLDOWN_MS     = 180_000;  // 3 Minuten zwischen Wünschen
 
-const guestSessions = new Map(); // sessionId → checkinTimestamp
+const guestSessions   = new Map(); // sessionId → checkinTimestamp
+const expiredSessions = new Set(); // blacklisted sessionIds (müssen QR neu scannen)
 const DEFAULT_SESSION_MS = 60 * 60_000; // 60 Minuten Standard
+
+const wishHistory = []; // { timestamp, name, ip, title, artist }
 
 // ── Middleware ───────────────────────────────────────────────────────────────
 
 function requireParty(req, res, next) {
-  const token = req.query.party || req.headers['x-party-token'];
+  const token     = req.query.party || req.headers['x-party-token'];
   const sessionId = req.headers['x-session-id'];
 
-  if (!activeParty) {
+  if (!activeParty)
     return res.status(403).json({ error: 'Keine Party aktiv. Bitte den QR-Code scannen.' });
-  }
-  if (activeParty.token !== token) {
+  if (activeParty.token !== token)
     return res.status(403).json({ error: 'Ungültiger Party-Code.' });
-  }
   if (activeParty.expiresAt && Date.now() > activeParty.expiresAt) {
     activeParty = null;
     return res.status(403).json({ error: 'Diese Party ist beendet.' });
   }
   if (sessionId) {
-    const checkin = guestSessions.get(sessionId);
+    const checkin  = guestSessions.get(sessionId);
     const duration = activeParty.sessionDurationMs || DEFAULT_SESSION_MS;
     if (!checkin || Date.now() - checkin > duration) {
+      expiredSessions.add(sessionId); // blacklisten → kein Re-Checkin per URL möglich
       return res.status(403).json({
         error: 'Deine Session ist abgelaufen. Bitte QR-Code neu scannen.',
         reason: 'session_expired'
@@ -65,9 +67,8 @@ function requireParty(req, res, next) {
 
 function requireAdmin(req, res, next) {
   const pwd = req.headers['x-admin-password'] || req.body?.adminPassword;
-  if (pwd !== process.env.ADMIN_PASSWORD) {
+  if (pwd !== process.env.ADMIN_PASSWORD)
     return res.status(401).json({ error: 'Falsches Admin-Passwort.' });
-  }
   next();
 }
 
@@ -76,27 +77,32 @@ function requireAdmin(req, res, next) {
 // Branding-Konfiguration (für Frontend)
 app.get('/api/config', (req, res) => res.json(config));
 
-// Gast-Checkin: QR-Scan startet/erneuert das Zeitfenster
+// Gast-Checkin: QR-Scan startet das Zeitfenster
 app.post('/api/party/checkin', (req, res) => {
-  const token = req.query.party || req.headers['x-party-token'];
+  const token     = req.query.party || req.headers['x-party-token'];
   const { sessionId } = req.body;
 
-  if (!activeParty || activeParty.token !== token) {
+  if (!activeParty || activeParty.token !== token)
     return res.status(403).json({ error: 'Keine aktive Party.' });
-  }
   if (activeParty.expiresAt && Date.now() > activeParty.expiresAt) {
     activeParty = null;
     return res.status(403).json({ error: 'Diese Party ist beendet.' });
   }
   if (!sessionId) return res.status(400).json({ error: 'Fehlende sessionId.' });
 
+  // Abgelaufene Sessions dürfen sich NICHT neu einchecken – QR-Scan erzwingen
+  if (expiredSessions.has(sessionId)) {
+    return res.status(403).json({
+      error: 'Session abgelaufen. Bitte QR-Code neu scannen.',
+      reason: 'session_expired'
+    });
+  }
+
   guestSessions.set(sessionId, Date.now());
 
   if (guestSessions.size > 5000) {
     const cutoff = Date.now() - (activeParty.sessionDurationMs || DEFAULT_SESSION_MS);
-    for (const [id, ts] of guestSessions) {
-      if (ts < cutoff) guestSessions.delete(id);
-    }
+    for (const [id, ts] of guestSessions) if (ts < cutoff) guestSessions.delete(id);
   }
 
   const duration = activeParty.sessionDurationMs || DEFAULT_SESSION_MS;
@@ -138,7 +144,7 @@ app.get('/api/search', requireParty, async (req, res) => {
 
 // Song per Titel + Artist wünschen (kuratierte Listen)
 app.post('/api/wish-by-name', requireParty, async (req, res) => {
-  const { title, artist, sessionId } = req.body;
+  const { title, artist, sessionId, guestName } = req.body;
   if (!title || !sessionId) return res.status(400).json({ error: 'Fehlende Parameter.' });
 
   const lastWish = guestCooldowns.get(sessionId);
@@ -160,7 +166,23 @@ app.post('/api/wish-by-name', requireParty, async (req, res) => {
     guestCooldowns.set(sessionId, Date.now());
     cleanupMap(guestCooldowns, COOLDOWN_MS);
 
-    res.json({ success: true, matched: { name: track.name, artist: track.artist } });
+    // Queue-Position ermitteln
+    let queuePosition = null;
+    try {
+      const qi = await spotify.getQueueInfo();
+      queuePosition = qi.queue.length;
+    } catch {}
+
+    // History loggen
+    wishHistory.push({
+      timestamp: new Date().toISOString(),
+      name:      guestName || 'Unbekannt',
+      ip:        req.headers['x-forwarded-for']?.split(',')[0].trim() || req.ip || '–',
+      title:     track.name,
+      artist:    track.artist
+    });
+
+    res.json({ success: true, matched: { name: track.name, artist: track.artist }, queuePosition });
   } catch (err) {
     console.error('Wish-by-name:', err.message);
     const s = err.response?.status;
@@ -174,7 +196,7 @@ app.post('/api/wish-by-name', requireParty, async (req, res) => {
 
 // Song per URI wünschen (Spotify-Suche)
 app.post('/api/wish', requireParty, async (req, res) => {
-  const { trackUri, sessionId } = req.body;
+  const { trackUri, sessionId, guestName, trackName, trackArtist } = req.body;
   if (!trackUri || !sessionId) return res.status(400).json({ error: 'Fehlende Parameter.' });
 
   const lastWish = guestCooldowns.get(sessionId);
@@ -190,7 +212,24 @@ app.post('/api/wish', requireParty, async (req, res) => {
     await spotify.addToQueue(trackUri);
     guestCooldowns.set(sessionId, Date.now());
     cleanupMap(guestCooldowns, COOLDOWN_MS);
-    res.json({ success: true });
+
+    // Queue-Position ermitteln
+    let queuePosition = null;
+    try {
+      const qi = await spotify.getQueueInfo();
+      queuePosition = qi.queue.length;
+    } catch {}
+
+    // History loggen
+    wishHistory.push({
+      timestamp: new Date().toISOString(),
+      name:      guestName || 'Unbekannt',
+      ip:        req.headers['x-forwarded-for']?.split(',')[0].trim() || req.ip || '–',
+      title:     trackName || trackUri,
+      artist:    trackArtist || '–'
+    });
+
+    res.json({ success: true, queuePosition });
   } catch (err) {
     console.error('Wish:', err.message);
     const s = err.response?.status;
@@ -208,9 +247,10 @@ app.get('/admin/status', requireAdmin, async (req, res) => {
   const playback = await spotify.getPlaybackState();
   res.json({
     spotifyConnected: spotify.isConnected(),
-    spotifyPlaying: !!playback?.is_playing,
-    spotifyDevice: playback?.device?.name || null,
-    party: activeParty
+    spotifyPlaying:   !!playback?.is_playing,
+    spotifyDevice:    playback?.device?.name || null,
+    party:            activeParty,
+    historyCount:     wishHistory.length
   });
 });
 
@@ -219,13 +259,14 @@ app.post('/admin/party/start', requireAdmin, (req, res) => {
   const token = process.env.PARTY_TOKEN || crypto.randomBytes(3).toString('hex');
   activeParty = {
     token,
-    name: (name || 'Party').trim(),
-    startedAt: Date.now(),
-    expiresAt: durationHours ? Date.now() + Number(durationHours) * 3_600_000 : null,
+    name:              (name || 'Party').trim(),
+    startedAt:         Date.now(),
+    expiresAt:         durationHours ? Date.now() + Number(durationHours) * 3_600_000 : null,
     sessionDurationMs: (Number(sessionDurationMinutes) || 60) * 60_000
   };
   guestCooldowns.clear();
   guestSessions.clear();
+  expiredSessions.clear();
   const url = `${process.env.APP_URL}/?party=${token}`;
   console.log(`🎉 Party: "${activeParty.name}" – Session: ${sessionDurationMinutes || 60} Min.`);
   res.json({ success: true, party: activeParty, url });
@@ -240,7 +281,20 @@ app.get('/admin/queue', requireAdmin, async (req, res) => {
   }
 });
 
-// Config live aktualisieren (Farben, Name) + Datei auf Disk schreiben
+// History als CSV herunterladen
+app.get('/admin/history.csv', requireAdmin, (req, res) => {
+  const header = 'Zeitpunkt,Name,IP,Titel,Artist\n';
+  const rows = wishHistory.map(h =>
+    [h.timestamp, h.name, h.ip, h.title, h.artist]
+      .map(v => `"${String(v).replace(/"/g, '""')}"`)
+      .join(',')
+  ).join('\n');
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', 'attachment; filename="musikwunsch-history.csv"');
+  res.send('﻿' + header + rows); // BOM für Excel
+});
+
+// Config live aktualisieren
 app.post('/admin/config', requireAdmin, (req, res) => {
   try {
     const updated = { ...config, ...req.body };
@@ -257,6 +311,7 @@ app.post('/admin/party/stop', requireAdmin, (req, res) => {
   activeParty = null;
   guestCooldowns.clear();
   guestSessions.clear();
+  expiredSessions.clear();
   res.json({ success: true });
 });
 
@@ -270,10 +325,10 @@ app.get('/auth', (req, res) => {
     'playlist-read-collaborative'
   ].join(' ');
   const params = new URLSearchParams({
-    client_id: process.env.SPOTIFY_CLIENT_ID,
+    client_id:     process.env.SPOTIFY_CLIENT_ID,
     response_type: 'code',
-    redirect_uri: process.env.REDIRECT_URI,
-    scope: scopes
+    redirect_uri:  process.env.REDIRECT_URI,
+    scope:         scopes
   });
   res.redirect('https://accounts.spotify.com/authorize?' + params);
 });
@@ -317,9 +372,7 @@ app.get('/admin', (req, res) => {
 function cleanupMap(map, maxAge) {
   if (map.size > 2000) {
     const cutoff = Date.now() - maxAge;
-    for (const [id, ts] of map) {
-      if (ts < cutoff) map.delete(id);
-    }
+    for (const [id, ts] of map) if (ts < cutoff) map.delete(id);
   }
 }
 
@@ -327,7 +380,5 @@ function cleanupMap(map, maxAge) {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`🎵 Musikwunsch-App läuft auf http://localhost:${PORT}`);
-  if (!spotify.isConnected()) {
-    console.log(`⚠️  Spotify nicht verbunden → /auth aufrufen`);
-  }
+  if (!spotify.isConnected()) console.log(`⚠️  Spotify nicht verbunden → /auth aufrufen`);
 });

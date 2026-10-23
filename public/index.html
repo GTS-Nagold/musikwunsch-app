@@ -283,6 +283,58 @@
 
     #app { display: none; }
     #app.show { display: block; }
+
+    /* ── Namen-Screen ── */
+    #name-screen {
+      display: none;
+      min-height: 100vh;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 2rem;
+      background: var(--blue);
+      color: white;
+    }
+    #name-screen.show { display: flex; }
+    #name-screen h2 {
+      font-family: 'Berkshire Swash', Georgia, serif;
+      font-size: 1.5rem;
+      font-weight: 400;
+      margin-bottom: .5rem;
+    }
+    #name-screen p {
+      font-size: .9rem;
+      color: var(--light-blue);
+      max-width: 280px;
+      margin-bottom: 2rem;
+    }
+    #name-input {
+      width: 100%;
+      max-width: 300px;
+      padding: .85rem 1rem;
+      border: none;
+      border-radius: .75rem;
+      font-size: 1.1rem;
+      text-align: center;
+      outline: none;
+      margin-bottom: 1rem;
+      color: var(--text);
+    }
+    #name-confirm {
+      background: white;
+      color: var(--blue);
+      border: none;
+      border-radius: 2rem;
+      padding: .75rem 2rem;
+      font-size: 1rem;
+      font-weight: 700;
+      cursor: pointer;
+      width: 100%;
+      max-width: 300px;
+      transition: opacity .2s;
+    }
+    #name-confirm:active { opacity: .8; }
   </style>
 </head>
 <body>
@@ -302,6 +354,15 @@
     Scanne den QR-Code in der Tanzschule erneut, um wieder Musikwünsche senden zu können.
   </p>
   <p style="font-size:.75rem;color:rgba(255,255,255,.4)">Der QR-Code hängt an der Tanzfläche.</p>
+</div>
+
+<!-- Namen-Eingabe -->
+<div id="name-screen">
+  <div style="font-size:3rem;margin-bottom:1rem">👋</div>
+  <h2>Willkommen!</h2>
+  <p>Wie heißt du? So sehen wir, wer welche Songs gewünscht hat.</p>
+  <input id="name-input" type="text" placeholder="Dein Vorname" autocomplete="given-name" maxlength="30">
+  <button id="name-confirm">Los geht's 🎵</button>
 </div>
 
 <!-- Haupt-App -->
@@ -364,6 +425,27 @@ if (!SESSION_ID) {
   SESSION_ID = 'gs_' + Math.random().toString(36).slice(2) + Date.now().toString(36);
   localStorage.setItem('mw_session', SESSION_ID);
 }
+
+// ── Gast-Name ─────────────────────────────────────────────────────────────────
+let GUEST_NAME = localStorage.getItem('mw_name') || '';
+
+function showNameScreen() {
+  document.getElementById('name-screen').classList.add('show');
+  setTimeout(() => document.getElementById('name-input').focus(), 100);
+}
+
+function confirmName() {
+  const val = document.getElementById('name-input').value.trim();
+  if (!val) { document.getElementById('name-input').placeholder = 'Bitte einen Namen eingeben'; return; }
+  GUEST_NAME = val;
+  localStorage.setItem('mw_name', GUEST_NAME);
+  document.getElementById('name-screen').classList.remove('show');
+  document.getElementById('app').classList.add('show');
+  loadPlaylists();
+}
+
+document.getElementById('name-confirm').addEventListener('click', confirmName);
+document.getElementById('name-input').addEventListener('keydown', e => { if (e.key === 'Enter') confirmName(); });
 
 // ── Party Token aus URL ──────────────────────────────────────────────────────
 const PARTY_TOKEN = new URLSearchParams(location.search).get('party') || '';
@@ -443,18 +525,20 @@ async function wishSong(btn, track) {
   btn.innerHTML = '<span class="spinner"></span>';
 
   try {
-    await api('/api/wish', {
+    const result = await api('/api/wish', {
       method: 'POST',
-      body: JSON.stringify({ trackUri: track.uri, sessionId: SESSION_ID })
+      body: JSON.stringify({ trackUri: track.uri, sessionId: SESSION_ID, guestName: GUEST_NAME, trackName: track.name, trackArtist: track.artist })
     });
 
     // Erfolg
     btn.className = 'wish-btn done';
     btn.textContent = '✓ Gewünscht!';
-    showToast('🎵 Wunsch gesendet! Nächster Wunsch in 60s.', 'success', 4000);
+    const pos = result?.queuePosition;
+    const posMsg = pos > 1 ? ` Noch ${pos - 1} Song${pos - 1 > 1 ? 's' : ''} davor.` : (pos === 1 ? ' Du bist als Nächstes dran! 🎶' : '');
+    showToast(`🎵 Wunsch gesendet!${posMsg} Nächster in 3 Min.`, 'success', 5000);
 
     // Cooldown starten
-    cooldownUntil = Date.now() + 60_000;
+    cooldownUntil = Date.now() + 180_000;
     startCooldownTimer();
 
   } catch (err) {
@@ -563,13 +647,14 @@ async function wishByName(btn, song) {
   try {
     const result = await api('/api/wish-by-name', {
       method: 'POST',
-      body: JSON.stringify({ title: song.title, artist: song.artist, sessionId: SESSION_ID })
+      body: JSON.stringify({ title: song.title, artist: song.artist, sessionId: SESSION_ID, guestName: GUEST_NAME })
     });
     btn.className = 'wish-btn done';
     btn.textContent = '✓ Gewünscht!';
-    const matched = result.matched ? ` (${result.matched.name})` : '';
-    showToast(`🎵 Wunsch gesendet!${matched} Nächster in 60s.`, 'success', 4000);
-    cooldownUntil = Date.now() + 60_000;
+    const pos = result?.queuePosition;
+    const posMsg = pos > 1 ? ` Noch ${pos - 1} Song${pos - 1 > 1 ? 's' : ''} davor.` : (pos === 1 ? ' Du bist als Nächstes dran! 🎶' : '');
+    showToast(`🎵 Wunsch gesendet!${posMsg} Nächster in 3 Min.`, 'success', 5000);
+    cooldownUntil = Date.now() + 180_000;
     startCooldownTimer();
   } catch (err) {
     btn.disabled = false;
@@ -718,8 +803,13 @@ async function init() {
       body: JSON.stringify({ sessionId: SESSION_ID })
     });
 
-    document.getElementById('app').classList.add('show');
-    loadPlaylists();
+    // Name bekannt? → direkt App zeigen. Sonst Namens-Screen.
+    if (GUEST_NAME) {
+      document.getElementById('app').classList.add('show');
+      loadPlaylists();
+    } else {
+      showNameScreen();
+    }
 
   } catch {
     document.getElementById('error-msg').textContent = 'Server nicht erreichbar. Bitte kurz warten und neu laden.';
