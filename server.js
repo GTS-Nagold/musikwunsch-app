@@ -166,11 +166,12 @@ app.post('/api/wish-by-name', requireParty, async (req, res) => {
     guestCooldowns.set(sessionId, Date.now());
     cleanupMap(guestCooldowns, COOLDOWN_MS);
 
-    // Queue-Position ermitteln
+    // Queue-Position ermitteln: Song per URI suchen → echter Index im User-Queue
     let queuePosition = null;
     try {
       const qi = await spotify.getQueueInfo();
-      queuePosition = qi.queue.length;
+      const idx = qi.queue.findIndex(t => t && t.uri === track.uri);
+      queuePosition = idx >= 0 ? idx + 1 : null;
     } catch {}
 
     // History loggen
@@ -213,11 +214,12 @@ app.post('/api/wish', requireParty, async (req, res) => {
     guestCooldowns.set(sessionId, Date.now());
     cleanupMap(guestCooldowns, COOLDOWN_MS);
 
-    // Queue-Position ermitteln
+    // Queue-Position ermitteln: Song per URI suchen → echter Index im User-Queue
     let queuePosition = null;
     try {
       const qi = await spotify.getQueueInfo();
-      queuePosition = qi.queue.length;
+      const idx = qi.queue.findIndex(t => t && t.uri === trackUri);
+      queuePosition = idx >= 0 ? idx + 1 : null;
     } catch {}
 
     // History loggen
