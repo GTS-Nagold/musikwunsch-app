@@ -797,11 +797,24 @@ async function init() {
     }
 
     // Gast-Checkin: startet/erneuert die Session (Zeitfenster läuft ab QR-Scan)
-    await fetch(`/api/party/checkin?party=${PARTY_TOKEN}`, {
+    let checkinResp = await fetch(`/api/party/checkin?party=${PARTY_TOKEN}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-party-token': PARTY_TOKEN },
       body: JSON.stringify({ sessionId: SESSION_ID })
-    });
+    }).then(r => r.json());
+
+    // Session abgelaufen? → Neue ID generieren + nochmal checkin (= echter QR-Scan)
+    if (checkinResp.reason === 'session_expired') {
+      SESSION_ID = 'gs_' + Math.random().toString(36).slice(2) + Date.now().toString(36);
+      localStorage.setItem('mw_session', SESSION_ID);
+      GUEST_NAME = '';
+      localStorage.removeItem('mw_name');
+      checkinResp = await fetch(`/api/party/checkin?party=${PARTY_TOKEN}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-party-token': PARTY_TOKEN },
+        body: JSON.stringify({ sessionId: SESSION_ID })
+      }).then(r => r.json());
+    }
 
     // Name bekannt? → direkt App zeigen. Sonst Namens-Screen.
     if (GUEST_NAME) {
