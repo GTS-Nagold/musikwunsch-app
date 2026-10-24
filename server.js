@@ -166,13 +166,15 @@ app.post('/api/wish-by-name', requireParty, async (req, res) => {
     guestCooldowns.set(sessionId, Date.now());
     cleanupMap(guestCooldowns, COOLDOWN_MS);
 
-    // Queue-Position ermitteln: kurz warten bis Spotify API aktualisiert ist
+    // Queue-Position ermitteln: bis zu 3 Versuche à 600ms
     let queuePosition = null;
     try {
-      await new Promise(r => setTimeout(r, 800));
-      const qi = await spotify.getQueueInfo();
-      const idx = qi.queue.findIndex(t => t && t.uri === track.uri);
-      queuePosition = idx >= 0 ? idx + 1 : null;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        await new Promise(r => setTimeout(r, 600));
+        const qi = await spotify.getQueueInfo();
+        const idx = qi.queue.findIndex(t => t && t.uri === track.uri);
+        if (idx >= 0) { queuePosition = idx + 1; break; }
+      }
     } catch {}
 
     // History loggen
