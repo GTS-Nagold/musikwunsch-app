@@ -181,6 +181,7 @@ app.post('/api/wish-by-name', requireParty, async (req, res) => {
     wishHistory.push({
       timestamp: new Date().toISOString(),
       name:      guestName || 'Unbekannt',
+      sessionId: sessionId.slice(-6),
       ip:        req.headers['x-forwarded-for']?.split(',')[0].trim() || req.ip || '–',
       title:     track.name,
       artist:    track.artist
@@ -229,6 +230,7 @@ app.post('/api/wish', requireParty, async (req, res) => {
     wishHistory.push({
       timestamp: new Date().toISOString(),
       name:      guestName || 'Unbekannt',
+      sessionId: sessionId.slice(-6),
       ip:        req.headers['x-forwarded-for']?.split(',')[0].trim() || req.ip || '–',
       title:     trackName || trackUri,
       artist:    trackArtist || '–'
@@ -288,9 +290,9 @@ app.get('/admin/queue', requireAdmin, async (req, res) => {
 
 // History als CSV herunterladen
 app.get('/admin/history.csv', requireAdmin, (req, res) => {
-  const header = 'Zeitpunkt,Name,IP,Titel,Artist\n';
+  const header = 'Zeitpunkt,Name,Session-ID,IP,Titel,Artist\n';
   const rows = wishHistory.map(h =>
-    [h.timestamp, h.name, h.ip, h.title, h.artist]
+    [h.timestamp, h.name, h.sessionId, h.ip, h.title, h.artist]
       .map(v => `"${String(v).replace(/"/g, '""')}"`)
       .join(',')
   ).join('\n');
