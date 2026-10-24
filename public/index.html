@@ -803,8 +803,14 @@ async function init() {
       body: JSON.stringify({ sessionId: SESSION_ID })
     }).then(r => r.json());
 
-    // Session abgelaufen? → Neue ID generieren + nochmal checkin (= echter QR-Scan)
+    // Session abgelaufen?
     if (checkinResp.reason === 'session_expired') {
+      // Refresh im selben Tab → sessionStorage hat Flag → sperren
+      if (sessionStorage.getItem('mw_active')) {
+        showExpiredScreen();
+        return;
+      }
+      // Neuer Tab / QR-Scan → sessionStorage leer → neue Session erlauben
       SESSION_ID = 'gs_' + Math.random().toString(36).slice(2) + Date.now().toString(36);
       localStorage.setItem('mw_session', SESSION_ID);
       GUEST_NAME = '';
@@ -815,6 +821,9 @@ async function init() {
         body: JSON.stringify({ sessionId: SESSION_ID })
       }).then(r => r.json());
     }
+
+    // Checkin erfolgreich → Tab als aktiv markieren
+    sessionStorage.setItem('mw_active', '1');
 
     // Neue Party? → Name zurücksetzen
     if (checkinResp.partyId && checkinResp.partyId !== localStorage.getItem('mw_party_id')) {
