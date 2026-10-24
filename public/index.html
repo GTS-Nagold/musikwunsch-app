@@ -816,6 +816,13 @@ async function init() {
       }).then(r => r.json());
     }
 
+    // Neue Party? → Name zurücksetzen
+    if (checkinResp.partyId && checkinResp.partyId !== localStorage.getItem('mw_party_id')) {
+      localStorage.setItem('mw_party_id', checkinResp.partyId);
+      GUEST_NAME = '';
+      localStorage.removeItem('mw_name');
+    }
+
     // Name bekannt? → direkt App zeigen. Sonst Namens-Screen.
     if (GUEST_NAME) {
       document.getElementById('app').classList.add('show');

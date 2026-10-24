@@ -106,7 +106,7 @@ app.post('/api/party/checkin', (req, res) => {
   }
 
   const duration = activeParty.sessionDurationMs || DEFAULT_SESSION_MS;
-  res.json({ success: true, expiresAt: Date.now() + duration });
+  res.json({ success: true, expiresAt: Date.now() + duration, partyId: activeParty.startedAt.toString(36) });
 });
 
 // Party-Status prüfen
