@@ -166,9 +166,10 @@ app.post('/api/wish-by-name', requireParty, async (req, res) => {
     guestCooldowns.set(sessionId, Date.now());
     cleanupMap(guestCooldowns, COOLDOWN_MS);
 
-    // Queue-Position ermitteln: Song per URI suchen → echter Index im User-Queue
+    // Queue-Position ermitteln: kurz warten bis Spotify API aktualisiert ist
     let queuePosition = null;
     try {
+      await new Promise(r => setTimeout(r, 800));
       const qi = await spotify.getQueueInfo();
       const idx = qi.queue.findIndex(t => t && t.uri === track.uri);
       queuePosition = idx >= 0 ? idx + 1 : null;
