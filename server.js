@@ -35,7 +35,38 @@ const guestSessions   = new Map(); // sessionId → checkinTimestamp
 const expiredSessions = new Set(); // blacklisted sessionIds (müssen QR neu scannen)
 const DEFAULT_SESSION_MS = 60 * 60_000; // 60 Minuten Standard
 
-const wishHistory = []; // { timestamp, name, ip, title, artist }
+// ── History (RAM + Disk) ─────────────────────────────────────────────────────
+const HISTORY_FILE = path.join(__dirname, 'data', 'history.csv');
+const HISTORY_HEADER = 'Zeitpunkt,Name,Session-ID,IP,Titel,Artist\n';
+
+const wishHistory = [];
+try {
+  if (fs.existsSync(HISTORY_FILE)) {
+    const lines = fs.readFileSync(HISTORY_FILE, 'utf8').replace(/^﻿/, '').split('\n').slice(1);
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      const [timestamp, name, sessionId, ip, title, artist] = line
+        .split(',').map(v => v.replace(/^"|"$/g, '').replace(/""/g, '"'));
+      wishHistory.push({ timestamp, name, sessionId, ip, title, artist });
+    }
+    console.log(`✅ History geladen: ${wishHistory.length} Einträge`);
+  } else {
+    fs.writeFileSync(HISTORY_FILE, '﻿' + HISTORY_HEADER);
+  }
+} catch (e) {
+  console.warn('⚠️ History konnte nicht geladen werden:', e.message);
+}
+
+function appendToHistoryFile(entry) {
+  try {
+    const line = [entry.timestamp, entry.name, entry.sessionId, entry.ip, entry.title, entry.artist]
+      .map(v => `"${String(v || '').replace(/"/g, '""')}"`)
+      .join(',') + '\n';
+    fs.appendFileSync(HISTORY_FILE, line);
+  } catch (e) {
+    console.warn('⚠️ History-Schreiben fehlgeschlagen:', e.message);
+  }
+}
 
 // ── Middleware ───────────────────────────────────────────────────────────────
 
@@ -178,14 +209,16 @@ app.post('/api/wish-by-name', requireParty, async (req, res) => {
     } catch {}
 
     // History loggen
-    wishHistory.push({
+    const entry1 = {
       timestamp: new Date().toISOString(),
       name:      guestName || 'Unbekannt',
       sessionId: sessionId.slice(-6),
       ip:        req.headers['x-forwarded-for']?.split(',')[0].trim() || req.ip || '–',
       title:     track.name,
       artist:    track.artist
-    });
+    };
+    wishHistory.push(entry1);
+    appendToHistoryFile(entry1);
 
     res.json({ success: true, matched: { name: track.name, artist: track.artist }, queuePosition });
   } catch (err) {
@@ -227,14 +260,16 @@ app.post('/api/wish', requireParty, async (req, res) => {
     } catch {}
 
     // History loggen
-    wishHistory.push({
+    const entry2 = {
       timestamp: new Date().toISOString(),
       name:      guestName || 'Unbekannt',
       sessionId: sessionId.slice(-6),
       ip:        req.headers['x-forwarded-for']?.split(',')[0].trim() || req.ip || '–',
       title:     trackName || trackUri,
       artist:    trackArtist || '–'
-    });
+    };
+    wishHistory.push(entry2);
+    appendToHistoryFile(entry2);
 
     res.json({ success: true, queuePosition });
   } catch (err) {
