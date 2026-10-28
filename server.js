@@ -140,6 +140,25 @@ app.post('/api/party/checkin', (req, res) => {
   res.json({ success: true, expiresAt: Date.now() + duration, partyId: activeParty.startedAt.toString(36) });
 });
 
+// App-Modus: Kunden der GregorS-App (Freiseite) checken ohne QR ein, solange eine Party läuft.
+// Braucht in Render die Variable APP_KEY (mindestens 16 Zeichen). Gleicher Wert steht in der Freiseite.
+app.post('/api/app/checkin', (req, res) => {
+  const given = Buffer.from(String(req.body?.key || ''));
+  const expected = Buffer.from(process.env.APP_KEY || '');
+  if (expected.length < 16 || given.length !== expected.length || !crypto.timingSafeEqual(given, expected))
+    return res.status(403).json({ error: 'Nicht berechtigt.' });
+  if (activeParty && activeParty.expiresAt && Date.now() > activeParty.expiresAt) activeParty = null;
+  if (!activeParty)
+    return res.status(403).json({ error: 'Aktuell ist keine Party aktiv. Schau beim nächsten Event wieder rein!', reason: 'no_party' });
+  const pid = String(req.body?.pid || '');
+  if (!/^[0-9]{1,9}$/.test(pid) || pid === '0') return res.status(400).json({ error: 'Ungültige Kundennummer.' });
+  const name = String(req.body?.name || '').replace(/[\u0000-\u001f<>"]/g, '').trim().slice(0, 30);
+  const sessionId = 'app_' + pid;
+  expiredSessions.delete(sessionId);
+  guestSessions.set(sessionId, Date.now());
+  res.json({ success: true, token: activeParty.token, sessionId, name, partyId: activeParty.startedAt.toString(36) });
+});
+
 // Party-Status prüfen
 app.get('/api/party/status', (req, res) => {
   const token = req.query.party || req.headers['x-party-token'];

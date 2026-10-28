@@ -1,0 +1,22 @@
+<div id="gts-musik"><p>Lade …</p></div><script>
+(async () => {
+  const SEITE = 'https://musikwunsch-app.onrender.com/';
+  const APP_KEY = '42893d776aa37b99185874f2e9fb3a40';
+  const box = document.getElementById('gts-musik');
+  try {
+    const r = await fetch('/app/plussapp/plussapp_einstellungen_daten', {credentials: 'include'});
+    const d = new DOMParser().parseFromString(await r.text(), 'text/html');
+    const pid = (d.querySelector('input[name=PID]') || {}).value || '';
+    const name = ((d.querySelector('input[name=Vorname]') || {}).value || '').trim();
+    if (!/^[0-9]{1,9}$/.test(pid) || pid === '0') throw new Error('keine PID');
+    box.innerHTML = '';
+    const f = document.createElement('iframe');
+    f.src = SEITE + '?app=' + encodeURIComponent(APP_KEY) + '&pid=' + pid + '&name=' + encodeURIComponent(name);
+    f.style.cssText = 'width:100%;height:1000px;border:0';
+    f.setAttribute('title', 'Musikwünsche');
+    box.appendChild(f);
+  } catch (e) {
+    box.textContent = 'Die Musikwünsche sind gerade nicht erreichbar. Bitte frag unsere Tanzlehrer.';
+  }
+})();
+</script>

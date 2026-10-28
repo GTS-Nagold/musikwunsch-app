@@ -451,7 +451,10 @@ document.getElementById('name-confirm').addEventListener('click', confirmName);
 document.getElementById('name-input').addEventListener('keydown', e => { if (e.key === 'Enter') confirmName(); });
 
 // ── Party Token aus URL ──────────────────────────────────────────────────────
-const PARTY_TOKEN = new URLSearchParams(location.search).get('party') || '';
+let PARTY_TOKEN = new URLSearchParams(location.search).get('party') || '';
+const APP_PARAMS = new URLSearchParams(location.search);
+const APP_MODE = !PARTY_TOKEN && !!APP_PARAMS.get('app');
+let APP_NAME = '';
 
 // ── Cooldown State ───────────────────────────────────────────────────────────
 let cooldownUntil = 0;
@@ -471,7 +474,7 @@ function api(path, opts = {}) {
     const data = await r.json();
     if (!r.ok) {
       if (r.status === 403 && data.reason === 'session_expired') {
-        showExpiredScreen();
+        if (APP_MODE) { location.reload(); } else { showExpiredScreen(); }
       }
       throw Object.assign(new Error(data.error || 'Fehler'), { status: r.status, data });
     }
@@ -774,6 +777,29 @@ async function runSearch(q) {
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 async function init() {
+  if (APP_MODE) {
+    try {
+      const r = await fetch('/api/app/checkin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: APP_PARAMS.get('app'), pid: APP_PARAMS.get('pid'), name: APP_PARAMS.get('name') || '' })
+      });
+      const d = await r.json();
+      if (!r.ok) {
+        document.getElementById('error-msg').textContent = d.error || 'Anmeldung nicht möglich.';
+        document.getElementById('error-screen').classList.add('show');
+        return;
+      }
+      PARTY_TOKEN = d.token;
+      SESSION_ID = d.sessionId;
+      APP_NAME = d.name || '';
+      GUEST_NAME = APP_NAME || GUEST_NAME;
+    } catch {
+      document.getElementById('error-msg').textContent = 'Server nicht erreichbar. Bitte kurz warten und neu laden.';
+      document.getElementById('error-screen').classList.add('show');
+      return;
+    }
+  }
   if (!PARTY_TOKEN) {
     document.getElementById('error-msg').textContent = 'Kein Party-Code gefunden. Bitte den QR-Code in der Tanzschule scannen.';
     document.getElementById('error-screen').classList.add('show');
@@ -834,6 +860,8 @@ async function init() {
       GUEST_NAME = '';
       localStorage.removeItem('mw_name');
     }
+
+      if (APP_NAME) GUEST_NAME = APP_NAME;
 
     // Name bekannt? → direkt App zeigen. Sonst Namens-Screen.
     if (GUEST_NAME) {
