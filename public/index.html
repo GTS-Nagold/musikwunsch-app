@@ -99,6 +99,45 @@
     #toast.error { background: var(--error); }
     #toast.warning { background: var(--warning); }
 
+    /* ── „Jetzt läuft"-Leiste (Tanzempfehlung) ── */
+    #now-bar {
+      position: fixed;
+      left: 0; right: 0; bottom: 0;
+      transform: translateY(110%);
+      transition: transform .35s ease;
+      background: linear-gradient(135deg, var(--blue), #3d4f9a);
+      color: white;
+      padding: .6rem 1rem calc(.6rem + env(safe-area-inset-bottom, 0px));
+      box-shadow: 0 -4px 20px rgba(47,61,124,.35);
+      z-index: 500;
+      display: flex;
+      align-items: center;
+      gap: .75rem;
+    }
+    #now-bar.show { transform: translateY(0); }
+    #now-bar .nb-eq {
+      font-size: 1.4rem;
+      flex-shrink: 0;
+      line-height: 1;
+    }
+    #now-bar .nb-text { flex: 1; min-width: 0; }
+    #now-bar .nb-track {
+      font-size: .82rem;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      color: rgba(255,255,255,.85);
+    }
+    #now-bar .nb-rec {
+      font-family: 'Berkshire Swash', Georgia, serif;
+      font-size: 1.05rem;
+      line-height: 1.2;
+      margin-top: .05rem;
+    }
+    #now-bar .nb-rec .nb-pill {
+      color: #ffe29a;
+    }
+    body.has-nowbar #toast { bottom: 5.5rem; }
+    body.has-nowbar { padding-bottom: 5rem; }
+
     /* ── Tanzstil-Liste ── */
     .dance-item {
       background: var(--card);
@@ -405,6 +444,15 @@
   </div>
 </div>
 
+<!-- „Jetzt läuft"-Leiste mit Tanzempfehlung -->
+<div id="now-bar">
+  <span class="nb-eq">🎶</span>
+  <div class="nb-text">
+    <div class="nb-rec" id="nb-rec"></div>
+    <div class="nb-track" id="nb-track"></div>
+  </div>
+</div>
+
 <div id="toast"></div>
 
 <script>
@@ -445,10 +493,43 @@ function confirmName() {
   document.getElementById('name-screen').classList.remove('show');
   document.getElementById('app').classList.add('show');
   loadPlaylists();
+  startNowPlaying();
 }
 
 document.getElementById('name-confirm').addEventListener('click', confirmName);
 document.getElementById('name-input').addEventListener('keydown', e => { if (e.key === 'Enter') confirmName(); });
+
+// ── „Jetzt läuft"-Leiste mit Tanzempfehlung ───────────────────────────────────
+let nowPlayingInterval = null;
+async function refreshNowPlaying() {
+  try {
+    const d = await api('/api/now-playing');
+    const bar = document.getElementById('now-bar');
+    if (!d.playing || !d.playing.isPlaying) { hideNowBar(); return; }
+    const { name, artist } = d.playing;
+    document.getElementById('nb-track').textContent = `🎵 ${name}${artist ? ' – ' + artist : ''}`;
+    const rec = document.getElementById('nb-rec');
+    if (d.dances && d.dances.length) {
+      const labels = d.dances.map(x => x.label).join(' / ');
+      rec.innerHTML = `💃 Jetzt dran: <span class="nb-pill">${labels}</span>`;
+    } else {
+      rec.innerHTML = `🕺 <span class="nb-pill">Freies Tanzen</span>`;
+    }
+    bar.classList.add('show');
+    document.body.classList.add('has-nowbar');
+  } catch {
+    // Poller soll bei Fehlern leise bleiben (kein Toast, kein Reload)
+  }
+}
+function hideNowBar() {
+  document.getElementById('now-bar').classList.remove('show');
+  document.body.classList.remove('has-nowbar');
+}
+function startNowPlaying() {
+  if (nowPlayingInterval) return;
+  refreshNowPlaying();
+  nowPlayingInterval = setInterval(refreshNowPlaying, 15000);
+}
 
 // ── Party Token aus URL ──────────────────────────────────────────────────────
 let PARTY_TOKEN = new URLSearchParams(location.search).get('party') || '';
@@ -867,6 +948,7 @@ async function init() {
     if (GUEST_NAME) {
       document.getElementById('app').classList.add('show');
       loadPlaylists();
+      startNowPlaying();
     } else {
       showNameScreen();
     }

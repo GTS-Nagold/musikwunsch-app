@@ -18,6 +18,51 @@ try {
   console.warn('⚠️ data/songs.json nicht gefunden – Tanzstile fallen auf Spotify-Suche zurück');
 }
 
+// ── Tanzstil-Abgleich (für „Jetzt läuft"-Leiste) ─────────────────────────────
+// Lesbare Labels pro Tanzstil-Key aus songs.json
+const DANCE_LABELS = {
+  'walzer': 'Langsamer Walzer', 'wiener-walzer': 'Wiener Walzer', 'tango': 'Tango',
+  'foxtrott': 'Foxtrott', 'slowfox': 'Slowfox', 'samba': 'Samba', 'cha-cha': 'Cha Cha Cha',
+  'rumba': 'Rumba', 'jive': 'Jive', 'discofox': 'Discofox', 'bachata': 'Bachata',
+  'salsa': 'Salsa', 'lindy-hop': 'Lindy Hop', 'blues': 'Blues', 'boogie': 'Boogie Woogie'
+};
+
+// Normalisiert Titel/Artist für den Abgleich (Akzente, Klammern, Remaster-Zusätze raus)
+function normalizeTrack(s) {
+  return String(s || '')
+    .toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/\(.*?\)|\[.*?\]/g, '')
+    .replace(/\s*-\s*(remaster|remastered|radio edit|single version|live|mono|stereo|version|edit).*$/i, '')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+// Index: normalisierter Titel → [{ dance, artist }]
+const songIndex = new Map();
+for (const [dance, list] of Object.entries(songsDb)) {
+  for (const song of list) {
+    const key = normalizeTrack(song.title);
+    if (!key) continue;
+    if (!songIndex.has(key)) songIndex.set(key, []);
+    songIndex.get(key).push({ dance, artist: normalizeTrack(song.artist) });
+  }
+}
+
+// Ermittelt die Tanzstile zu einem laufenden Song (Titel-Match, Artist zur Entschärfung von Mehrdeutigkeit)
+function matchDances(name, artist) {
+  const hits = songIndex.get(normalizeTrack(name)) || [];
+  if (!hits.length) return [];
+  const na = normalizeTrack(artist);
+  const naFirst = na.split(' ')[0];
+  let filtered = hits;
+  if (na) {
+    const byArtist = hits.filter(h => h.artist && (h.artist.includes(naFirst) || na.includes(h.artist.split(' ')[0])));
+    if (byArtist.length) filtered = byArtist;
+  }
+  return [...new Set(filtered.map(h => h.dance))];
+}
+
 const app = express();
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
@@ -178,6 +223,24 @@ app.get('/api/dance/:id/songs', requireParty, (req, res) => {
   const songs = songsDb[req.params.id];
   if (!songs) return res.status(404).json({ error: 'Tanzstil nicht gefunden.' });
   res.json(songs.slice(0, 60));
+});
+
+// Was läuft gerade? + Tanzempfehlung aus den kuratierten Listen
+app.get('/api/now-playing', requireParty, async (req, res) => {
+  try {
+    const state = await spotify.getPlaybackState();
+    const item = state?.item;
+    if (!item || !item.name) return res.json({ playing: null });
+    const name = item.name;
+    const artist = (item.artists || []).map(a => a.name).join(', ');
+    const danceKeys = matchDances(name, artist);
+    res.json({
+      playing: { name, artist, isPlaying: !!state.is_playing },
+      dances: danceKeys.map(k => ({ key: k, label: DANCE_LABELS[k] || k }))
+    });
+  } catch {
+    res.json({ playing: null });
+  }
 });
 
 // Spotify-Freisuche
