@@ -77,24 +77,28 @@
     .tab-content { display: none; padding: 1rem; }
     .tab-content.active { display: block; }
 
-    /* ── Toast ── */
+    /* ── Toast (mittig auf dem Bildschirm) ── */
     #toast {
       position: fixed;
-      bottom: 1.5rem;
+      top: 50%;
       left: 50%;
-      transform: translateX(-50%) translateY(100px);
+      transform: translate(-50%, -50%) scale(.85);
+      opacity: 0;
+      pointer-events: none;
       background: var(--blue);
       color: white;
-      padding: .75rem 1.25rem;
-      border-radius: 2rem;
-      font-size: .9rem;
-      max-width: calc(100vw - 2rem);
+      padding: 1rem 1.5rem;
+      border-radius: 1.25rem;
+      font-size: 1rem;
+      font-weight: 600;
+      line-height: 1.35;
+      max-width: calc(100vw - 3rem);
       text-align: center;
       z-index: 999;
-      transition: transform .3s ease;
-      box-shadow: 0 4px 20px rgba(0,0,0,.2);
+      transition: transform .25s ease, opacity .25s ease;
+      box-shadow: 0 8px 32px rgba(0,0,0,.3);
     }
-    #toast.show { transform: translateX(-50%) translateY(0); }
+    #toast.show { transform: translate(-50%, -50%) scale(1); opacity: 1; }
     #toast.success { background: var(--success); }
     #toast.error { background: var(--error); }
     #toast.warning { background: var(--warning); }
@@ -135,7 +139,6 @@
     #now-bar .nb-rec .nb-pill {
       color: #ffe29a;
     }
-    body.has-nowbar #toast { bottom: 5.5rem; }
     body.has-nowbar { padding-bottom: 5rem; }
 
     /* ── Tanzstil-Liste ── */
