@@ -514,7 +514,7 @@ async function refreshNowPlaying() {
     const rec = document.getElementById('nb-rec');
     if (d.dances && d.dances.length) {
       const labels = d.dances.map(x => x.label).join(' / ');
-      rec.innerHTML = `💃 Jetzt dran: <span class="nb-pill">${labels}</span>`;
+      rec.innerHTML = `💃 Am besten passt: <span class="nb-pill">${labels}</span>`;
     } else {
       rec.innerHTML = `🕺 <span class="nb-pill">Freies Tanzen</span>`;
     }
