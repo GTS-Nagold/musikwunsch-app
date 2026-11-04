@@ -247,11 +247,13 @@
       color: white;
       border: none;
       border-radius: 1.5rem;
-      padding: .45rem .85rem;
-      font-size: .8rem;
+      padding: .45rem .7rem;
+      font-size: .95rem;
       cursor: pointer;
       white-space: nowrap;
       flex-shrink: 0;
+      min-width: 2.4rem;
+      text-align: center;
       transition: background .2s, opacity .2s;
       position: relative;
     }
@@ -592,7 +594,7 @@ function makeTrackCard(track) {
       <div class="track-name">${esc(track.name)}</div>
       <div class="track-artist">${esc(track.artist)}</div>
     </div>
-    <button class="wish-btn" data-uri="${track.uri}">♡ Wünschen</button>
+    <button class="wish-btn" data-uri="${track.uri}">♡</button>
   `;
   div.querySelector('.wish-btn').addEventListener('click', e => wishSong(e.currentTarget, track));
   return div;
@@ -622,7 +624,7 @@ async function wishSong(btn, track) {
 
     // Erfolg
     btn.className = 'wish-btn done';
-    btn.textContent = '✓ Gewünscht!';
+    btn.textContent = '✓';
     const pos = result?.queuePosition;
     const posMsg = pos > 1 ? ` Noch ${pos - 1} Song${pos - 1 > 1 ? 's' : ''} davor.` : (pos === 1 ? ' Du bist als Nächstes dran! 🎶' : '');
     showToast(`🎵 Wunsch gesendet!${posMsg} Nächster in 3 Min.`, 'success', 5000);
@@ -642,7 +644,7 @@ async function wishSong(btn, track) {
       showToast(err.message, 'warning');
     } else {
       btn.className = 'wish-btn';
-      btn.textContent = '♡ Wünschen';
+      btn.textContent = '♡';
       showToast(err.message || 'Fehler aufgetreten', 'error', 5000);
     }
   }
@@ -673,7 +675,7 @@ function updateAllWishButtons(remaining = null) {
     } else {
       btn.disabled = false;
       btn.className = 'wish-btn';
-      btn.textContent = '♡ Wünschen';
+      btn.textContent = '♡';
     }
   });
 }
@@ -706,7 +708,7 @@ const DANCE_LIST = [
   { id: 'samba',            name: 'Samba',            emoji: '🥁' },
   { id: 'slowfox',          name: 'Slowfox',          emoji: '🌙' },
   { id: 'tango',            name: 'Tango',            emoji: '🌹' },
-  { id: 'walzer',           name: 'Walzer',           emoji: '🩰' },
+  { id: 'walzer',           name: 'Langsamer Walzer',  emoji: '🩰' },
   { id: 'wiener-walzer',    name: 'Wiener Walzer',    emoji: '💃' },
 ];
 
@@ -720,7 +722,7 @@ function makeCuratedTrackCard(song) {
       <div class="track-name">${esc(song.title)}</div>
       <div class="track-artist">${esc(song.artist)}</div>
     </div>
-    <button class="wish-btn">♡ Wünschen</button>
+    <button class="wish-btn">♡</button>
   `;
   div.querySelector('.wish-btn').addEventListener('click', e => wishByName(e.currentTarget, song));
   return div;
@@ -740,7 +742,7 @@ async function wishByName(btn, song) {
       body: JSON.stringify({ title: song.title, artist: song.artist, sessionId: SESSION_ID, guestName: GUEST_NAME })
     });
     btn.className = 'wish-btn done';
-    btn.textContent = '✓ Gewünscht!';
+    btn.textContent = '✓';
     const pos = result?.queuePosition;
     const posMsg = pos > 1 ? ` Noch ${pos - 1} Song${pos - 1 > 1 ? 's' : ''} davor.` : (pos === 1 ? ' Du bist als Nächstes dran! 🎶' : '');
     showToast(`🎵 Wunsch gesendet!${posMsg} Nächster in 3 Min.`, 'success', 5000);
@@ -757,7 +759,7 @@ async function wishByName(btn, song) {
       showToast(err.message, 'warning');
     } else {
       btn.className = 'wish-btn';
-      btn.textContent = '♡ Wünschen';
+      btn.textContent = '♡';
       showToast(err.message || 'Fehler', 'error', 5000);
     }
   }
