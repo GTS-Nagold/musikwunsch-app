@@ -627,7 +627,7 @@ async function wishSong(btn, track) {
     btn.textContent = '✓';
     const pos = result?.queuePosition;
     const posMsg = pos > 1 ? ` Noch ${pos - 1} Song${pos - 1 > 1 ? 's' : ''} davor.` : (pos === 1 ? ' Du bist als Nächstes dran! 🎶' : '');
-    showToast(`🎵 Wunsch gesendet!${posMsg} Nächster in 3 Min.`, 'success', 5000);
+    showToast(`✅${posMsg}`, 'success', 5000);
 
     // Cooldown starten
     cooldownUntil = Date.now() + 180_000;
@@ -745,7 +745,7 @@ async function wishByName(btn, song) {
     btn.textContent = '✓';
     const pos = result?.queuePosition;
     const posMsg = pos > 1 ? ` Noch ${pos - 1} Song${pos - 1 > 1 ? 's' : ''} davor.` : (pos === 1 ? ' Du bist als Nächstes dran! 🎶' : '');
-    showToast(`🎵 Wunsch gesendet!${posMsg} Nächster in 3 Min.`, 'success', 5000);
+    showToast(`✅${posMsg}`, 'success', 5000);
     cooldownUntil = Date.now() + 180_000;
     startCooldownTimer();
   } catch (err) {
