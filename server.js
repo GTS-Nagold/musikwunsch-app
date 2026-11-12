@@ -74,7 +74,7 @@ let activeParty = null;
 // { token, name, startedAt, expiresAt|null, sessionDurationMs }
 
 const guestCooldowns  = new Map(); // sessionId → timestamp
-const COOLDOWN_MS     = 60_000;   // 60 Sekunden zwischen Wünschen
+const COOLDOWN_MS     = 180_000;  // 3 Minuten zwischen Wünschen
 
 const guestSessions   = new Map(); // sessionId → checkinTimestamp
 const expiredSessions = new Set(); // blacklisted sessionIds (müssen QR neu scannen)
