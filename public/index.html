@@ -31,7 +31,7 @@
     header {
       background: var(--blue);
       color: white;
-      padding: 1rem 1.25rem 0.75rem;
+      padding: 1rem 1.25rem 0;
       position: sticky;
       top: 0;
       z-index: 100;
@@ -439,12 +439,11 @@
   <header>
     <h1>🎵 Musikwünsche</h1>
     <p id="party-name">GregorS Tanzschule</p>
+    <div class="tabs">
+      <button class="tab-btn active" data-tab="playlists">Tanzstile</button>
+      <button class="tab-btn" data-tab="search">Spotify Suche</button>
+    </div>
   </header>
-
-  <div class="tabs">
-    <button class="tab-btn active" data-tab="playlists">Tanzstile</button>
-    <button class="tab-btn" data-tab="search">Spotify Suche</button>
-  </div>
 
   <!-- Tab: Unsere Listen -->
   <div class="tab-content active" id="tab-playlists">
@@ -480,7 +479,14 @@
   </div>
 </div>
 
-<audio id="preview-audio" preload="none"></audio>
+<!-- Spotify Preview Modal -->
+<div id="preview-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:800;align-items:center;justify-content:center;padding:1rem">
+  <div style="background:#fff;border-radius:1rem;padding:1.25rem 1rem 1rem;max-width:380px;width:100%;position:relative">
+    <button onclick="closePreview()" style="position:absolute;top:.6rem;right:.8rem;background:none;border:none;font-size:1.6rem;cursor:pointer;color:#666;line-height:1">×</button>
+    <p style="font-size:.8rem;color:#888;margin-bottom:.75rem;padding-right:1.5rem">🎵 Vorhören</p>
+    <iframe id="preview-iframe" src="" width="100%" height="152" frameBorder="0" allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture" loading="lazy" style="border-radius:.75rem;display:block"></iframe>
+  </div>
+</div>
 <div id="toast"></div>
 
 <script>
@@ -605,37 +611,20 @@ function showToast(msg, type = 'info', duration = 3000) {
   toastTimer = setTimeout(() => { t.className = ''; }, duration);
 }
 
-// ── Preview-Player ───────────────────────────────────────────────────────────
-let currentPreviewBtn = null;
-const previewAudio = document.getElementById('preview-audio');
-previewAudio.addEventListener('ended', () => {
-  if (currentPreviewBtn) {
-    currentPreviewBtn.textContent = '▶';
-    currentPreviewBtn.classList.remove('playing');
-    currentPreviewBtn = null;
-  }
-});
-
-function togglePreview(btn) {
-  const url = btn.dataset.preview;
-  if (!url) return;
-  if (currentPreviewBtn === btn) {
-    previewAudio.pause();
-    btn.textContent = '▶';
-    btn.classList.remove('playing');
-    currentPreviewBtn = null;
-  } else {
-    if (currentPreviewBtn) {
-      currentPreviewBtn.textContent = '▶';
-      currentPreviewBtn.classList.remove('playing');
-    }
-    previewAudio.src = url;
-    previewAudio.play().catch(() => {});
-    btn.textContent = '⏸';
-    btn.classList.add('playing');
-    currentPreviewBtn = btn;
-  }
+// ── Spotify Embed Preview ────────────────────────────────────────────────────
+function openPreview(trackUri) {
+  const trackId = trackUri.replace('spotify:track:', '');
+  document.getElementById('preview-iframe').src =
+    `https://open.spotify.com/embed/track/${trackId}?utm_source=generator`;
+  document.getElementById('preview-modal').style.display = 'flex';
 }
+function closePreview() {
+  document.getElementById('preview-iframe').src = '';
+  document.getElementById('preview-modal').style.display = 'none';
+}
+document.getElementById('preview-modal').addEventListener('click', e => {
+  if (e.target === e.currentTarget) closePreview();
+});
 
 // ── Curated-Card Enrichment (Bild + Preview via Spotify-Suche, lazy) ─────────
 let _enrichSlots = 0;
@@ -663,15 +652,14 @@ async function enrichCuratedCard(card) {
         ph.replaceWith(img);
       }
     }
-    if (t.preview) {
+    if (t.uri) {
       const wishBtn = card.querySelector('.wish-btn');
       if (wishBtn && !card.querySelector('.preview-btn')) {
         const previewBtn = document.createElement('button');
         previewBtn.className = 'preview-btn';
         previewBtn.textContent = '▶';
-        previewBtn.dataset.preview = t.preview;
         previewBtn.title = 'Vorhören';
-        previewBtn.addEventListener('click', e => { e.stopPropagation(); togglePreview(previewBtn); });
+        previewBtn.addEventListener('click', e => { e.stopPropagation(); openPreview(t.uri); });
         card.insertBefore(previewBtn, wishBtn);
       }
     }
@@ -697,21 +685,16 @@ function makeTrackCard(track) {
   const img = track.image
     ? `<img class="track-img" src="${track.image}" alt="" loading="lazy">`
     : `<div class="track-img-placeholder">🎵</div>`;
-  const previewHtml = track.preview
-    ? `<button class="preview-btn" data-preview="${track.preview}" title="Vorhören">▶</button>`
-    : '';
   div.innerHTML = `
     ${img}
     <div class="track-info">
       <div class="track-name">${esc(track.name)}</div>
       <div class="track-artist">${esc(track.artist)}</div>
     </div>
-    ${previewHtml}
+    <button class="preview-btn" title="Vorhören">▶</button>
     <button class="wish-btn" data-uri="${track.uri}">♡</button>
   `;
-  if (track.preview) {
-    div.querySelector('.preview-btn').addEventListener('click', e => { e.stopPropagation(); togglePreview(e.currentTarget); });
-  }
+  div.querySelector('.preview-btn').addEventListener('click', e => { e.stopPropagation(); openPreview(track.uri); });
   div.querySelector('.wish-btn').addEventListener('click', e => wishSong(e.currentTarget, track));
   return div;
 }
