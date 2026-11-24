@@ -115,7 +115,7 @@ function appendToHistoryFile(entry) {
 
 // ── Feedback (Tanzstil-Bewertung laufender Songs) ────────────────────────────
 const FEEDBACK_FILE = path.join(__dirname, 'data', 'feedback.csv');
-const FEEDBACK_HEADER = 'Zeitpunkt,SessionID,Titel,Artist,SpotifyID,VorgeschlageneTaenze,GewaehlteTaenze\n';
+const FEEDBACK_HEADER = 'Zeitpunkt,SessionID,Titel,Artist,SpotifyID,VorgeschlageneTaenze,GewaehlteTaenze,Bewertung\n';
 
 const feedbackData = [];
 try {
@@ -129,7 +129,8 @@ try {
           timestamp: parts[0], sessionId: parts[1], title: parts[2],
           artist: parts[3], spotifyId: parts[4],
           suggestedDances: parts[5] ? parts[5].split('|') : [],
-          chosenDances:    parts[6] ? parts[6].split('|') : []
+          chosenDances:    parts[6] ? parts[6].split('|') : [],
+          rating:          parts[7] || null
         });
       }
     }
@@ -144,7 +145,7 @@ try {
 function appendToFeedbackFile(entry) {
   try {
     const line = [entry.timestamp, entry.sessionId, entry.title, entry.artist, entry.spotifyId,
-      (entry.suggestedDances || []).join('|'), (entry.chosenDances || []).join('|')]
+      (entry.suggestedDances || []).join('|'), (entry.chosenDances || []).join('|'), entry.rating || '']
       .map(v => `"${String(v || '').replace(/"/g, '""')}"`)
       .join(',') + '\n';
     fs.appendFileSync(FEEDBACK_FILE, line);
@@ -300,18 +301,17 @@ app.get('/api/search', requireParty, async (req, res) => {
 
 // Tanzstil-Feedback zu laufendem Song
 app.post('/api/feedback', requireParty, (req, res) => {
-  const { title, artist, spotifyId, suggestedDances, chosenDances, sessionId } = req.body;
+  const { title, artist, spotifyId, suggestedDances, chosenDances, rating, sessionId } = req.body;
   if (!title || !sessionId) return res.status(400).json({ error: 'Fehlende Parameter.' });
-  if (!Array.isArray(chosenDances) || !chosenDances.length)
-    return res.status(400).json({ error: 'Mindestens einen Tanzstil wählen.' });
   const entry = {
-    timestamp:      new Date().toISOString(),
-    sessionId:      sessionId.slice(-8),
-    title:          title.trim().slice(0, 100),
-    artist:         (artist || '').trim().slice(0, 100),
-    spotifyId:      (spotifyId || '').slice(0, 50),
+    timestamp:       new Date().toISOString(),
+    sessionId:       sessionId.slice(-8),
+    title:           title.trim().slice(0, 100),
+    artist:          (artist || '').trim().slice(0, 100),
+    spotifyId:       (spotifyId || '').slice(0, 50),
     suggestedDances: Array.isArray(suggestedDances) ? suggestedDances : [],
-    chosenDances
+    chosenDances:    Array.isArray(chosenDances) ? chosenDances : [],
+    rating:          ['up', 'down'].includes(rating) ? rating : null
   };
   feedbackData.push(entry);
   appendToFeedbackFile(entry);
@@ -506,9 +506,10 @@ app.post('/admin/party/stop', requireAdmin, (req, res) => {
 
 // Aggregierte Vorschläge (ab MIN_VOTES übereinstimmende Votes für einen Tanzstil)
 app.get('/admin/feedback/suggestions', requireAdmin, (req, res) => {
-  const MIN_VOTES = 3;
-  const counts = new Map(); // key → count
-  const meta   = new Map(); // key → { title, artist }
+  const MIN_VOTES = 1;
+  const counts  = new Map(); // key → count
+  const meta    = new Map(); // key → { title, artist }
+  const ratings = new Map(); // key → { up, down }
 
   for (const fb of feedbackData) {
     const nt = normalizeTrack(fb.title);
@@ -518,6 +519,10 @@ app.get('/admin/feedback/suggestions', requireAdmin, (req, res) => {
       if (rejectedSuggestions.has(key)) continue;
       counts.set(key, (counts.get(key) || 0) + 1);
       if (!meta.has(key)) meta.set(key, { title: fb.title, artist: fb.artist });
+      if (fb.rating) {
+        if (!ratings.has(key)) ratings.set(key, { up: 0, down: 0 });
+        ratings.get(key)[fb.rating === 'up' ? 'up' : 'down']++;
+      }
     }
   }
 
@@ -532,7 +537,8 @@ app.get('/admin/feedback/suggestions', requireAdmin, (req, res) => {
     const alreadyIn = (songsDb[dance] || []).some(s =>
       normalizeTrack(s.title) === nt && normalizeTrack(s.artist) === na
     );
-    if (!alreadyIn) suggestions.push({ title, artist, dance, votes: count });
+    const r = ratings.get(key) || { up: 0, down: 0 };
+    if (!alreadyIn) suggestions.push({ title, artist, dance, votes: count, up: r.up, down: r.down });
   }
 
   suggestions.sort((a, b) => b.votes - a.votes);

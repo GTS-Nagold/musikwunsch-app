@@ -412,12 +412,16 @@ async function loadSuggestions() {
       row.dataset.title  = s.title;
       row.dataset.artist = s.artist;
       row.dataset.dance  = s.dance;
+      const badgeColor = s.votes >= 3 ? 'var(--success)' : s.votes >= 2 ? 'var(--warning)' : '#aaa';
+      const ratingLine = (s.up || s.down)
+        ? `<span style="font-size:.72rem;color:#888">👍 ${s.up} · 👎 ${s.down}</span>` : '';
       row.innerHTML = `
         <div class="suggestion-info">
           <strong>${esc(s.title)}</strong>
           <span>${esc(s.artist)} → <b>${esc(danceLabel)}</b></span>
+          ${ratingLine}
         </div>
-        <span class="badge">${s.votes}×</span>
+        <span class="badge" style="background:${badgeColor}">${s.votes}×</span>
         <button class="btn btn-success" style="padding:.4rem .75rem;font-size:.8rem">✓</button>
         <button class="btn btn-danger"  style="padding:.4rem .75rem;font-size:.8rem">✗</button>
       `;

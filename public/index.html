@@ -263,6 +263,21 @@
     .wish-btn.cooldown { background: var(--muted); }
     .wish-btn.done { background: var(--success); }
 
+    /* ── Bewertungs-Buttons (👍/👎) ── */
+    .rating-btn {
+      flex: 1;
+      padding: .55rem .5rem;
+      border: 2px solid #e0e5f5;
+      border-radius: .75rem;
+      background: white;
+      cursor: pointer;
+      font-size: .88rem;
+      transition: all .15s;
+      text-align: center;
+    }
+    .rating-btn.selected-up   { border-color: var(--success); background: var(--success); color: white; }
+    .rating-btn.selected-down { border-color: var(--error);   background: var(--error);   color: white; }
+
     /* ── Tanzstil-Chips (Feedback-Modal) ── */
     .dance-chip {
       padding: .4rem .85rem;
@@ -510,9 +525,13 @@
       </div>
       <button onclick="closeFeedbackModal()" style="background:none;border:none;font-size:1.8rem;cursor:pointer;color:#bbb;line-height:1;flex-shrink:0;margin-left:1rem;margin-top:-.2rem">×</button>
     </div>
+    <div style="display:flex;gap:.6rem;margin-bottom:1rem">
+      <button class="rating-btn" id="fb-rating-up"   data-rating="up">👍 Gefällt mir</button>
+      <button class="rating-btn" id="fb-rating-down" data-rating="down">👎 Nicht meins</button>
+    </div>
     <p style="font-size:.9rem;font-weight:600;color:var(--text);margin-bottom:.75rem">Was würdest du dazu tanzen?</p>
     <div id="fb-dance-chips" style="display:flex;flex-wrap:wrap;gap:.5rem;margin-bottom:1.5rem"></div>
-    <button onclick="submitFeedback()" style="width:100%;padding:.8rem;background:var(--blue);color:white;border:none;border-radius:.75rem;font-size:.95rem;font-weight:600;cursor:pointer">
+    <button id="fb-submit-btn" onclick="submitFeedback()" style="width:100%;padding:.8rem;background:var(--blue);color:white;border:none;border-radius:.75rem;font-size:.95rem;font-weight:600;cursor:pointer">
       Absenden ✓
     </button>
   </div>
@@ -524,6 +543,24 @@
     <button onclick="closePreview()" style="position:absolute;top:.6rem;right:.8rem;background:none;border:none;font-size:1.6rem;cursor:pointer;color:#666;line-height:1">×</button>
     <p style="font-size:.8rem;color:#888;margin-bottom:.75rem;padding-right:1.5rem">🎵 Vorhören</p>
     <iframe id="preview-iframe" src="" width="100%" height="152" frameBorder="0" allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture" loading="lazy" style="border-radius:.75rem;display:block"></iframe>
+    <select id="preview-dance-select" onchange="submitPreviewDance(this)" style="width:100%;margin-top:.75rem;padding:.6rem .75rem;border:2px solid #e0e5f5;border-radius:.6rem;font-size:.85rem;color:#555;background:white;cursor:pointer">
+      <option value="">🕺 Tanzstil vorschlagen (optional)</option>
+      <option value="walzer">🩰 Langsamer Walzer</option>
+      <option value="wiener-walzer">💃 Wiener Walzer</option>
+      <option value="tango">🌹 Tango</option>
+      <option value="foxtrott">🦊 Foxtrott</option>
+      <option value="slowfox">🌙 Slowfox</option>
+      <option value="samba">🥁 Samba</option>
+      <option value="cha-cha">💫 Cha Cha Cha</option>
+      <option value="rumba">❤️ Rumba</option>
+      <option value="jive">⚡ Jive</option>
+      <option value="discofox">🪩 Discofox</option>
+      <option value="bachata">🎵 Bachata</option>
+      <option value="salsa">🌶️ Salsa</option>
+      <option value="lindy-hop">🎷 Lindy Hop</option>
+      <option value="blues">🎼 Blues</option>
+      <option value="boogie">🎸 Boogie Woogie</option>
+    </select>
   </div>
 </div>
 <div id="toast"></div>
@@ -599,29 +636,55 @@ async function refreshNowPlaying() {
 }
 
 // ── Feedback Modal (Tanzstil bewerten) ───────────────────────────────────────
+const submittedFeedback = new Set(); // key: song-titel (lowercase) – verhindert Mehrfach-Bewertung
+
 document.getElementById('now-bar').addEventListener('click', openFeedbackModal);
 document.getElementById('feedback-modal').addEventListener('click', e => {
   if (e.target === e.currentTarget) closeFeedbackModal();
 });
 
+// 👍/👎 Buttons
+document.querySelectorAll('.rating-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.rating-btn').forEach(b => b.className = 'rating-btn');
+    btn.classList.add(btn.dataset.rating === 'up' ? 'selected-up' : 'selected-down');
+  });
+});
+
 function openFeedbackModal() {
   if (!currentNowPlaying) return;
+  const alreadyVoted = submittedFeedback.has(currentNowPlaying.name.toLowerCase());
+
   document.getElementById('fb-title').textContent = currentNowPlaying.name;
   document.getElementById('fb-artist').textContent = currentNowPlaying.artist;
 
+  // Rating-Buttons zurücksetzen / sperren
+  document.querySelectorAll('.rating-btn').forEach(b => {
+    b.className = 'rating-btn';
+    b.disabled = alreadyVoted;
+    b.style.opacity = alreadyVoted ? '.5' : '';
+  });
+
+  // Dance-Chips aufbauen
   const container = document.getElementById('fb-dance-chips');
   container.innerHTML = '';
   const preSelected = new Set((currentNowPlaying.dances || []).map(d => d.key));
-
   DANCE_LIST.forEach(dance => {
-    if (!dance.id) return; // nur kuratierte Tanzstile
+    if (!dance.id) return;
     const chip = document.createElement('button');
     chip.className = 'dance-chip' + (preSelected.has(dance.id) ? ' selected' : '');
     chip.textContent = dance.emoji + ' ' + dance.name;
     chip.dataset.id = dance.id;
-    chip.addEventListener('click', () => chip.classList.toggle('selected'));
+    if (!alreadyVoted) chip.addEventListener('click', () => chip.classList.toggle('selected'));
+    else { chip.style.pointerEvents = 'none'; chip.style.opacity = '.55'; }
     container.appendChild(chip);
   });
+
+  // Submit-Button
+  const btn = document.getElementById('fb-submit-btn');
+  btn.disabled = alreadyVoted;
+  btn.textContent = alreadyVoted ? '✓ Bereits bewertet – danke!' : 'Absenden ✓';
+  btn.style.background = alreadyVoted ? 'var(--muted)' : '';
 
   document.getElementById('feedback-modal').style.display = 'flex';
 }
@@ -634,23 +697,23 @@ async function submitFeedback() {
   if (!currentNowPlaying) return;
   const chips = document.querySelectorAll('#fb-dance-chips .dance-chip.selected');
   const chosenDances = Array.from(chips).map(c => c.dataset.id);
-  if (!chosenDances.length) {
-    document.getElementById('fb-dance-chips').style.outline = '2px solid var(--error)';
-    setTimeout(() => document.getElementById('fb-dance-chips').style.outline = '', 1200);
-    return;
-  }
+  const ratingBtn = document.querySelector('.rating-btn.selected-up, .rating-btn.selected-down');
+  const rating = ratingBtn ? ratingBtn.dataset.rating : null;
+
   try {
     await api('/api/feedback', {
       method: 'POST',
       body: JSON.stringify({
-        title:          currentNowPlaying.name,
-        artist:         currentNowPlaying.artist,
-        spotifyId:      currentNowPlaying.spotifyId || '',
+        title:           currentNowPlaying.name,
+        artist:          currentNowPlaying.artist,
+        spotifyId:       currentNowPlaying.spotifyId || '',
         suggestedDances: (currentNowPlaying.dances || []).map(d => d.key),
         chosenDances,
-        sessionId:      SESSION_ID
+        rating,
+        sessionId:       SESSION_ID
       })
     });
+    submittedFeedback.add(currentNowPlaying.name.toLowerCase());
     closeFeedbackModal();
     showToast('Danke für dein Feedback! 🕺', 'success', 3000);
   } catch (err) {
@@ -714,10 +777,17 @@ function showToast(msg, type = 'info', duration = 3000) {
 }
 
 // ── Spotify Embed Preview ────────────────────────────────────────────────────
-function openPreview(trackUri) {
+let previewTrack = { uri: '', name: '', artist: '' };
+
+function openPreview(trackUri, name, artist) {
+  previewTrack = { uri: trackUri, name: name || '', artist: artist || '' };
   const trackId = trackUri.replace('spotify:track:', '');
   document.getElementById('preview-iframe').src =
     `https://open.spotify.com/embed/track/${trackId}?utm_source=generator`;
+  const sel = document.getElementById('preview-dance-select');
+  sel.value = '';
+  sel.disabled = false;
+  sel.options[0].textContent = '🕺 Tanzstil vorschlagen (optional)';
   document.getElementById('preview-modal').style.display = 'flex';
 }
 function closePreview() {
@@ -727,6 +797,25 @@ function closePreview() {
 document.getElementById('preview-modal').addEventListener('click', e => {
   if (e.target === e.currentTarget) closePreview();
 });
+
+async function submitPreviewDance(select) {
+  const dance = select.value;
+  if (!dance || !previewTrack.uri) return;
+  select.disabled = true;
+  try {
+    await api('/api/feedback', {
+      method: 'POST',
+      body: JSON.stringify({
+        title: previewTrack.name, artist: previewTrack.artist,
+        spotifyId: previewTrack.uri, suggestedDances: [], chosenDances: [dance],
+        rating: null, sessionId: SESSION_ID
+      })
+    });
+    select.value = '';
+    select.options[0].textContent = '✓ Danke für den Vorschlag!';
+    setTimeout(() => { select.options[0].textContent = '🕺 Tanzstil vorschlagen (optional)'; select.disabled = false; }, 2500);
+  } catch { select.disabled = false; }
+}
 
 // ── Curated-Card Enrichment (Bild + Preview via Spotify-Suche, lazy) ─────────
 let _enrichSlots = 0;
@@ -761,7 +850,7 @@ async function enrichCuratedCard(card) {
         previewBtn.className = 'preview-btn';
         previewBtn.textContent = '▶';
         previewBtn.title = 'Vorhören';
-        previewBtn.addEventListener('click', e => { e.stopPropagation(); openPreview(t.uri); });
+        previewBtn.addEventListener('click', e => { e.stopPropagation(); openPreview(t.uri, card.dataset.title, card.dataset.artist); });
         card.insertBefore(previewBtn, wishBtn);
       }
     }
@@ -796,7 +885,7 @@ function makeTrackCard(track) {
     <button class="preview-btn" title="Vorhören">▶</button>
     <button class="wish-btn" data-uri="${track.uri}">♡</button>
   `;
-  div.querySelector('.preview-btn').addEventListener('click', e => { e.stopPropagation(); openPreview(track.uri); });
+  div.querySelector('.preview-btn').addEventListener('click', e => { e.stopPropagation(); openPreview(track.uri, track.name, track.artist); });
   div.querySelector('.wish-btn').addEventListener('click', e => wishSong(e.currentTarget, track));
   return div;
 }
