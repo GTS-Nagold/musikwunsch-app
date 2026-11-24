@@ -71,6 +71,21 @@ const spotify = new SpotifyClient();
 
 // ── In-Memory State ──────────────────────────────────────────────────────────
 let activeParty = null;
+
+// Now-Playing-Cache: ein einziger Spotify-Aufruf, geteilt von allen Gästen
+let _nowPlayingCache = null;
+let _nowPlayingCacheTime = 0;
+const NOW_PLAYING_CACHE_MS = 10_000; // 10 Sekunden
+
+async function getCachedPlaybackState() {
+  const now = Date.now();
+  if (_nowPlayingCache && now - _nowPlayingCacheTime < NOW_PLAYING_CACHE_MS) {
+    return _nowPlayingCache;
+  }
+  _nowPlayingCache = await spotify.getPlaybackState();
+  _nowPlayingCacheTime = now;
+  return _nowPlayingCache;
+}
 // { token, name, startedAt, expiresAt|null, sessionDurationMs }
 
 const guestCooldowns  = new Map(); // sessionId → timestamp
@@ -272,7 +287,7 @@ app.get('/api/dance/:id/songs', requireParty, (req, res) => {
 // Was läuft gerade? + Tanzempfehlung aus den kuratierten Listen
 app.get('/api/now-playing', requireParty, async (req, res) => {
   try {
-    const state = await spotify.getPlaybackState();
+    const state = await getCachedPlaybackState();
     const item = state?.item;
     if (!item || !item.name) return res.json({ playing: null });
     const name = item.name;
@@ -431,7 +446,7 @@ app.post('/api/wish', requireParty, async (req, res) => {
 // ── Admin-API ────────────────────────────────────────────────────────────────
 
 app.get('/admin/status', requireAdmin, async (req, res) => {
-  const playback = await spotify.getPlaybackState();
+  const playback = await getCachedPlaybackState();
   res.json({
     spotifyConnected: spotify.isConnected(),
     spotifyPlaying:   !!playback?.is_playing,
