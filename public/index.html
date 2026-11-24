@@ -263,6 +263,28 @@
     .wish-btn.cooldown { background: var(--muted); }
     .wish-btn.done { background: var(--success); }
 
+    /* ── Preview-Button (Vorhören) ── */
+    .preview-btn {
+      background: none;
+      border: 1.5px solid var(--light-blue);
+      color: var(--light-blue);
+      border-radius: 50%;
+      width: 2rem;
+      height: 2rem;
+      font-size: .75rem;
+      cursor: pointer;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background .2s, color .2s;
+      padding: 0;
+    }
+    .preview-btn.playing {
+      background: var(--light-blue);
+      color: white;
+    }
+
     /* ── Suche ── */
     .search-bar {
       position: relative;
@@ -458,6 +480,7 @@
   </div>
 </div>
 
+<audio id="preview-audio" preload="none"></audio>
 <div id="toast"></div>
 
 <script>
@@ -582,20 +605,113 @@ function showToast(msg, type = 'info', duration = 3000) {
   toastTimer = setTimeout(() => { t.className = ''; }, duration);
 }
 
+// ── Preview-Player ───────────────────────────────────────────────────────────
+let currentPreviewBtn = null;
+const previewAudio = document.getElementById('preview-audio');
+previewAudio.addEventListener('ended', () => {
+  if (currentPreviewBtn) {
+    currentPreviewBtn.textContent = '▶';
+    currentPreviewBtn.classList.remove('playing');
+    currentPreviewBtn = null;
+  }
+});
+
+function togglePreview(btn) {
+  const url = btn.dataset.preview;
+  if (!url) return;
+  if (currentPreviewBtn === btn) {
+    previewAudio.pause();
+    btn.textContent = '▶';
+    btn.classList.remove('playing');
+    currentPreviewBtn = null;
+  } else {
+    if (currentPreviewBtn) {
+      currentPreviewBtn.textContent = '▶';
+      currentPreviewBtn.classList.remove('playing');
+    }
+    previewAudio.src = url;
+    previewAudio.play().catch(() => {});
+    btn.textContent = '⏸';
+    btn.classList.add('playing');
+    currentPreviewBtn = btn;
+  }
+}
+
+// ── Curated-Card Enrichment (Bild + Preview via Spotify-Suche, lazy) ─────────
+let _enrichSlots = 0;
+const _enrichWaiters = [];
+const ENRICH_MAX = 4;
+
+async function enrichCuratedCard(card) {
+  if (_enrichSlots >= ENRICH_MAX) await new Promise(r => _enrichWaiters.push(r));
+  _enrichSlots++;
+  try {
+    const title = card.dataset.title;
+    const artist = card.dataset.artist || '';
+    if (!title) return;
+    const results = await api(`/api/search?q=${encodeURIComponent(title + ' ' + artist)}`);
+    const t = results[0];
+    if (!t) return;
+    if (t.image) {
+      const ph = card.querySelector('.track-img-placeholder');
+      if (ph) {
+        const img = document.createElement('img');
+        img.className = 'track-img';
+        img.src = t.image;
+        img.alt = '';
+        img.loading = 'lazy';
+        ph.replaceWith(img);
+      }
+    }
+    if (t.preview) {
+      const wishBtn = card.querySelector('.wish-btn');
+      if (wishBtn && !card.querySelector('.preview-btn')) {
+        const previewBtn = document.createElement('button');
+        previewBtn.className = 'preview-btn';
+        previewBtn.textContent = '▶';
+        previewBtn.dataset.preview = t.preview;
+        previewBtn.title = 'Vorhören';
+        previewBtn.addEventListener('click', e => { e.stopPropagation(); togglePreview(previewBtn); });
+        card.insertBefore(previewBtn, wishBtn);
+      }
+    }
+  } catch {}
+  finally {
+    _enrichSlots--;
+    if (_enrichWaiters.length) _enrichWaiters.shift()();
+  }
+}
+
+const imageObserver = new IntersectionObserver((entries) => {
+  entries.forEach(entry => {
+    if (entry.isIntersecting) {
+      imageObserver.unobserve(entry.target);
+      enrichCuratedCard(entry.target);
+    }
+  });
+}, { rootMargin: '150px' });
+
 function makeTrackCard(track) {
   const div = document.createElement('div');
   div.className = 'track-card';
   const img = track.image
     ? `<img class="track-img" src="${track.image}" alt="" loading="lazy">`
     : `<div class="track-img-placeholder">🎵</div>`;
+  const previewHtml = track.preview
+    ? `<button class="preview-btn" data-preview="${track.preview}" title="Vorhören">▶</button>`
+    : '';
   div.innerHTML = `
     ${img}
     <div class="track-info">
       <div class="track-name">${esc(track.name)}</div>
       <div class="track-artist">${esc(track.artist)}</div>
     </div>
+    ${previewHtml}
     <button class="wish-btn" data-uri="${track.uri}">♡</button>
   `;
+  if (track.preview) {
+    div.querySelector('.preview-btn').addEventListener('click', e => { e.stopPropagation(); togglePreview(e.currentTarget); });
+  }
   div.querySelector('.wish-btn').addEventListener('click', e => wishSong(e.currentTarget, track));
   return div;
 }
@@ -716,6 +832,8 @@ const DANCE_LIST = [
 function makeCuratedTrackCard(song) {
   const div = document.createElement('div');
   div.className = 'track-card';
+  div.dataset.title = song.title;
+  div.dataset.artist = song.artist || '';
   div.innerHTML = `
     <div class="track-img-placeholder">🎵</div>
     <div class="track-info">
@@ -725,6 +843,7 @@ function makeCuratedTrackCard(song) {
     <button class="wish-btn">♡</button>
   `;
   div.querySelector('.wish-btn').addEventListener('click', e => wishByName(e.currentTarget, song));
+  imageObserver.observe(div);
   return div;
 }
 

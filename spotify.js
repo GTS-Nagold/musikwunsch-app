@@ -105,7 +105,8 @@ class SpotifyClient {
       uri: t.uri,
       name: t.name,
       artist: (t.artists || []).map(a => a.name).join(', '),
-      image: t.album?.images?.[2]?.url || t.album?.images?.[0]?.url || null
+      image: t.album?.images?.[2]?.url || t.album?.images?.[0]?.url || null,
+      preview: t.preview_url || null
     }));
   }
 
