@@ -263,6 +263,25 @@
     .wish-btn.cooldown { background: var(--muted); }
     .wish-btn.done { background: var(--success); }
 
+    /* ── Tanzstil-Chips (Feedback-Modal) ── */
+    .dance-chip {
+      padding: .4rem .85rem;
+      border: 2px solid #e0e5f5;
+      border-radius: 2rem;
+      font-size: .82rem;
+      cursor: pointer;
+      background: white;
+      color: var(--text);
+      transition: all .15s;
+      user-select: none;
+    }
+    .dance-chip.selected {
+      background: var(--blue);
+      color: white;
+      border-color: var(--blue);
+    }
+    #now-bar { cursor: pointer; }
+
     /* ── Preview-Button (Vorhören) ── */
     .preview-btn {
       background: none;
@@ -477,6 +496,26 @@
     <div class="nb-rec" id="nb-rec"></div>
     <div class="nb-track" id="nb-track"></div>
   </div>
+  <span style="font-size:.7rem;color:rgba(255,255,255,.5);flex-shrink:0;white-space:nowrap">✦ bewerten</span>
+</div>
+
+<!-- Feedback Modal (Tanzstil bewerten) -->
+<div id="feedback-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:800;align-items:flex-end;justify-content:center">
+  <div style="background:#fff;border-radius:1.25rem 1.25rem 0 0;padding:1.5rem 1.25rem 2rem;max-width:480px;width:100%;max-height:85vh;overflow-y:auto">
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:1.1rem">
+      <div>
+        <div style="font-size:.75rem;color:var(--muted);margin-bottom:.2rem">🎵 Jetzt läuft</div>
+        <div id="fb-title" style="font-weight:700;font-size:1rem;color:var(--blue);line-height:1.3"></div>
+        <div id="fb-artist" style="font-size:.85rem;color:var(--muted)"></div>
+      </div>
+      <button onclick="closeFeedbackModal()" style="background:none;border:none;font-size:1.8rem;cursor:pointer;color:#bbb;line-height:1;flex-shrink:0;margin-left:1rem;margin-top:-.2rem">×</button>
+    </div>
+    <p style="font-size:.9rem;font-weight:600;color:var(--text);margin-bottom:.75rem">Was würdest du dazu tanzen?</p>
+    <div id="fb-dance-chips" style="display:flex;flex-wrap:wrap;gap:.5rem;margin-bottom:1.5rem"></div>
+    <button onclick="submitFeedback()" style="width:100%;padding:.8rem;background:var(--blue);color:white;border:none;border-radius:.75rem;font-size:.95rem;font-weight:600;cursor:pointer">
+      Absenden ✓
+    </button>
+  </div>
 </div>
 
 <!-- Spotify Preview Modal -->
@@ -535,12 +574,15 @@ document.getElementById('name-input').addEventListener('keydown', e => { if (e.k
 
 // ── „Jetzt läuft"-Leiste mit Tanzempfehlung ───────────────────────────────────
 let nowPlayingInterval = null;
+let currentNowPlaying = null; // { name, artist, spotifyId, dances }
+
 async function refreshNowPlaying() {
   try {
     const d = await api('/api/now-playing');
     const bar = document.getElementById('now-bar');
-    if (!d.playing || !d.playing.isPlaying) { hideNowBar(); return; }
-    const { name, artist } = d.playing;
+    if (!d.playing || !d.playing.isPlaying) { hideNowBar(); currentNowPlaying = null; return; }
+    const { name, artist, spotifyId } = d.playing;
+    currentNowPlaying = { name, artist, spotifyId: spotifyId || null, dances: d.dances || [] };
     document.getElementById('nb-track').textContent = `🎵 ${name}${artist ? ' – ' + artist : ''}`;
     const rec = document.getElementById('nb-rec');
     if (d.dances && d.dances.length) {
@@ -553,6 +595,66 @@ async function refreshNowPlaying() {
     document.body.classList.add('has-nowbar');
   } catch {
     // Poller soll bei Fehlern leise bleiben (kein Toast, kein Reload)
+  }
+}
+
+// ── Feedback Modal (Tanzstil bewerten) ───────────────────────────────────────
+document.getElementById('now-bar').addEventListener('click', openFeedbackModal);
+document.getElementById('feedback-modal').addEventListener('click', e => {
+  if (e.target === e.currentTarget) closeFeedbackModal();
+});
+
+function openFeedbackModal() {
+  if (!currentNowPlaying) return;
+  document.getElementById('fb-title').textContent = currentNowPlaying.name;
+  document.getElementById('fb-artist').textContent = currentNowPlaying.artist;
+
+  const container = document.getElementById('fb-dance-chips');
+  container.innerHTML = '';
+  const preSelected = new Set((currentNowPlaying.dances || []).map(d => d.key));
+
+  DANCE_LIST.forEach(dance => {
+    if (!dance.id) return; // nur kuratierte Tanzstile
+    const chip = document.createElement('button');
+    chip.className = 'dance-chip' + (preSelected.has(dance.id) ? ' selected' : '');
+    chip.textContent = dance.emoji + ' ' + dance.name;
+    chip.dataset.id = dance.id;
+    chip.addEventListener('click', () => chip.classList.toggle('selected'));
+    container.appendChild(chip);
+  });
+
+  document.getElementById('feedback-modal').style.display = 'flex';
+}
+
+function closeFeedbackModal() {
+  document.getElementById('feedback-modal').style.display = 'none';
+}
+
+async function submitFeedback() {
+  if (!currentNowPlaying) return;
+  const chips = document.querySelectorAll('#fb-dance-chips .dance-chip.selected');
+  const chosenDances = Array.from(chips).map(c => c.dataset.id);
+  if (!chosenDances.length) {
+    document.getElementById('fb-dance-chips').style.outline = '2px solid var(--error)';
+    setTimeout(() => document.getElementById('fb-dance-chips').style.outline = '', 1200);
+    return;
+  }
+  try {
+    await api('/api/feedback', {
+      method: 'POST',
+      body: JSON.stringify({
+        title:          currentNowPlaying.name,
+        artist:         currentNowPlaying.artist,
+        spotifyId:      currentNowPlaying.spotifyId || '',
+        suggestedDances: (currentNowPlaying.dances || []).map(d => d.key),
+        chosenDances,
+        sessionId:      SESSION_ID
+      })
+    });
+    closeFeedbackModal();
+    showToast('Danke für dein Feedback! 🕺', 'success', 3000);
+  } catch (err) {
+    showToast(err.message || 'Fehler', 'error');
   }
 }
 function hideNowBar() {

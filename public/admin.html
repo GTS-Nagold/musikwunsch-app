@@ -109,6 +109,20 @@
     }
 
     /* Toast */
+    /* Vorschläge */
+    .suggestion-row {
+      display: flex;
+      align-items: center;
+      gap: .5rem;
+      padding: .75rem 0;
+      border-bottom: 1px solid #f0f2f8;
+    }
+    .suggestion-row:last-child { border-bottom: none; }
+    .suggestion-info { flex: 1; min-width: 0; }
+    .suggestion-info strong { display: block; font-size: .9rem; color: var(--blue); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .suggestion-info span { font-size: .78rem; color: #666; }
+    .badge { background: var(--blue); color: white; border-radius: 2rem; padding: .2rem .55rem; font-size: .75rem; flex-shrink: 0; }
+
     #admin-toast {
       position: fixed; bottom: 1.5rem; left: 50%;
       transform: translateX(-50%) translateY(100px);
@@ -202,6 +216,17 @@
       </div>
     </div>
 
+    <!-- Song-Vorschläge aus Feedback -->
+    <div class="card" id="suggestions-card" style="display:none">
+      <h3>🎵 Song-Vorschläge aus Gäste-Feedback</h3>
+      <p style="font-size:.82rem;color:#666;margin-bottom:1rem">Sobald 3+ Gäste denselben Tanzstil zu einem Song wählen, erscheint er hier.</p>
+      <div id="suggestions-list"></div>
+      <div style="display:flex;gap:.5rem;margin-top:1rem;flex-wrap:wrap">
+        <button class="btn btn-primary" style="font-size:.85rem" onclick="loadSuggestions()">🔄 Aktualisieren</button>
+        <a id="feedback-csv-link" href="/admin/feedback.csv" class="btn" style="background:#e8eaf6;color:var(--blue);font-size:.85rem;text-decoration:none">⬇ Feedback-CSV</a>
+      </div>
+    </div>
+
   </main>
 </div>
 
@@ -242,6 +267,7 @@ async function login() {
     await loadStatus();
     document.getElementById('login-screen').style.display = 'none';
     document.getElementById('admin-panel').style.display = 'block';
+    loadSuggestions();
   } catch {
     toast('Falsches Passwort', 'error');
     ADMIN_PASSWORD = '';
@@ -354,6 +380,74 @@ async function stopParty() {
 setInterval(() => {
   if (ADMIN_PASSWORD) loadStatus().catch(() => {});
 }, 30_000);
+
+// ── Song-Vorschläge ──────────────────────────────────────────────────────────
+const DANCE_LABELS = {
+  'walzer':'Langsamer Walzer','wiener-walzer':'Wiener Walzer','tango':'Tango',
+  'foxtrott':'Foxtrott','slowfox':'Slowfox','samba':'Samba','cha-cha':'Cha Cha Cha',
+  'rumba':'Rumba','jive':'Jive','discofox':'Discofox','bachata':'Bachata',
+  'salsa':'Salsa','lindy-hop':'Lindy Hop','blues':'Blues','boogie':'Boogie Woogie'
+};
+
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+async function loadSuggestions() {
+  const card = document.getElementById('suggestions-card');
+  const list = document.getElementById('suggestions-list');
+  card.style.display = 'block';
+  list.innerHTML = '<p style="font-size:.85rem;color:#888;padding:.5rem 0">Lade…</p>';
+  try {
+    const suggestions = await api('/admin/feedback/suggestions');
+    if (!suggestions.length) {
+      list.innerHTML = '<p style="font-size:.85rem;color:#888;text-align:center;padding:1rem 0">Noch keine Vorschläge (mind. 3 Votes nötig)</p>';
+      return;
+    }
+    list.innerHTML = '';
+    suggestions.forEach(s => {
+      const row = document.createElement('div');
+      row.className = 'suggestion-row';
+      const danceLabel = DANCE_LABELS[s.dance] || s.dance;
+      row.dataset.title  = s.title;
+      row.dataset.artist = s.artist;
+      row.dataset.dance  = s.dance;
+      row.innerHTML = `
+        <div class="suggestion-info">
+          <strong>${esc(s.title)}</strong>
+          <span>${esc(s.artist)} → <b>${esc(danceLabel)}</b></span>
+        </div>
+        <span class="badge">${s.votes}×</span>
+        <button class="btn btn-success" style="padding:.4rem .75rem;font-size:.8rem">✓</button>
+        <button class="btn btn-danger"  style="padding:.4rem .75rem;font-size:.8rem">✗</button>
+      `;
+      row.querySelector('.btn-success').addEventListener('click', () => approveSuggestion(row));
+      row.querySelector('.btn-danger').addEventListener('click',  () => rejectSuggestion(row));
+      list.appendChild(row);
+    });
+  } catch (err) {
+    list.innerHTML = '';
+    toast(err.message, 'error');
+  }
+}
+
+async function approveSuggestion(row) {
+  const { title, artist, dance } = row.dataset;
+  try {
+    await api('/admin/feedback/approve', { method: 'POST', body: JSON.stringify({ title, artist, dance }) });
+    row.remove();
+    toast(`✅ „${title}" → ${DANCE_LABELS[dance] || dance} freigegeben`, 'success');
+  } catch (err) { toast(err.message, 'error'); }
+}
+
+async function rejectSuggestion(row) {
+  const { title, artist, dance } = row.dataset;
+  try {
+    await api('/admin/feedback/reject', { method: 'POST', body: JSON.stringify({ title, artist, dance }) });
+    row.remove();
+    toast(`Abgelehnt: „${title}"`, '');
+  } catch (err) { toast(err.message, 'error'); }
+}
 </script>
 </body>
 </html>

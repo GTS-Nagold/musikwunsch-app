@@ -113,6 +113,49 @@ function appendToHistoryFile(entry) {
   }
 }
 
+// ── Feedback (Tanzstil-Bewertung laufender Songs) ────────────────────────────
+const FEEDBACK_FILE = path.join(__dirname, 'data', 'feedback.csv');
+const FEEDBACK_HEADER = 'Zeitpunkt,SessionID,Titel,Artist,SpotifyID,VorgeschlageneTaenze,GewaehlteTaenze\n';
+
+const feedbackData = [];
+try {
+  if (fs.existsSync(FEEDBACK_FILE)) {
+    const lines = fs.readFileSync(FEEDBACK_FILE, 'utf8').replace(/^﻿/, '').split('\n').slice(1);
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      const parts = line.split(',').map(v => v.replace(/^"|"$/g, '').replace(/""/g, '"'));
+      if (parts.length >= 7) {
+        feedbackData.push({
+          timestamp: parts[0], sessionId: parts[1], title: parts[2],
+          artist: parts[3], spotifyId: parts[4],
+          suggestedDances: parts[5] ? parts[5].split('|') : [],
+          chosenDances:    parts[6] ? parts[6].split('|') : []
+        });
+      }
+    }
+    console.log(`✅ Feedback geladen: ${feedbackData.length} Einträge`);
+  } else {
+    fs.writeFileSync(FEEDBACK_FILE, '﻿' + FEEDBACK_HEADER);
+  }
+} catch (e) {
+  console.warn('⚠️ Feedback konnte nicht geladen werden:', e.message);
+}
+
+function appendToFeedbackFile(entry) {
+  try {
+    const line = [entry.timestamp, entry.sessionId, entry.title, entry.artist, entry.spotifyId,
+      (entry.suggestedDances || []).join('|'), (entry.chosenDances || []).join('|')]
+      .map(v => `"${String(v || '').replace(/"/g, '""')}"`)
+      .join(',') + '\n';
+    fs.appendFileSync(FEEDBACK_FILE, line);
+  } catch (e) {
+    console.warn('⚠️ Feedback-Schreiben fehlgeschlagen:', e.message);
+  }
+}
+
+// In-Memory: abgelehnte Vorschläge (resettet bei Server-Neustart – ok, da aus CSV neu berechnet)
+const rejectedSuggestions = new Set(); // key: "normTitle::normArtist::dance"
+
 // ── Middleware ───────────────────────────────────────────────────────────────
 
 function requireParty(req, res, next) {
@@ -235,7 +278,7 @@ app.get('/api/now-playing', requireParty, async (req, res) => {
     const artist = (item.artists || []).map(a => a.name).join(', ');
     const danceKeys = matchDances(name, artist);
     res.json({
-      playing: { name, artist, isPlaying: !!state.is_playing },
+      playing: { name, artist, isPlaying: !!state.is_playing, spotifyId: item.id || null },
       dances: danceKeys.map(k => ({ key: k, label: DANCE_LABELS[k] || k }))
     });
   } catch {
@@ -253,6 +296,26 @@ app.get('/api/search', requireParty, async (req, res) => {
     console.error('Suche:', err.message);
     res.status(500).json({ error: err.message });
   }
+});
+
+// Tanzstil-Feedback zu laufendem Song
+app.post('/api/feedback', requireParty, (req, res) => {
+  const { title, artist, spotifyId, suggestedDances, chosenDances, sessionId } = req.body;
+  if (!title || !sessionId) return res.status(400).json({ error: 'Fehlende Parameter.' });
+  if (!Array.isArray(chosenDances) || !chosenDances.length)
+    return res.status(400).json({ error: 'Mindestens einen Tanzstil wählen.' });
+  const entry = {
+    timestamp:      new Date().toISOString(),
+    sessionId:      sessionId.slice(-8),
+    title:          title.trim().slice(0, 100),
+    artist:         (artist || '').trim().slice(0, 100),
+    spotifyId:      (spotifyId || '').slice(0, 50),
+    suggestedDances: Array.isArray(suggestedDances) ? suggestedDances : [],
+    chosenDances
+  };
+  feedbackData.push(entry);
+  appendToFeedbackFile(entry);
+  res.json({ success: true });
 });
 
 // Song per Titel + Artist wünschen (kuratierte Listen)
@@ -437,6 +500,95 @@ app.post('/admin/party/stop', requireAdmin, (req, res) => {
   guestSessions.clear();
   expiredSessions.clear();
   res.json({ success: true });
+});
+
+// ── Admin: Feedback-Vorschläge ───────────────────────────────────────────────
+
+// Aggregierte Vorschläge (ab MIN_VOTES übereinstimmende Votes für einen Tanzstil)
+app.get('/admin/feedback/suggestions', requireAdmin, (req, res) => {
+  const MIN_VOTES = 3;
+  const counts = new Map(); // key → count
+  const meta   = new Map(); // key → { title, artist }
+
+  for (const fb of feedbackData) {
+    const nt = normalizeTrack(fb.title);
+    const na = normalizeTrack(fb.artist);
+    for (const dance of fb.chosenDances) {
+      const key = `${nt}::${na}::${dance}`;
+      if (rejectedSuggestions.has(key)) continue;
+      counts.set(key, (counts.get(key) || 0) + 1);
+      if (!meta.has(key)) meta.set(key, { title: fb.title, artist: fb.artist });
+    }
+  }
+
+  const suggestions = [];
+  for (const [key, count] of counts) {
+    if (count < MIN_VOTES) continue;
+    const parts = key.split('::');
+    const dance = parts[2];
+    const { title, artist } = meta.get(key);
+    const nt = normalizeTrack(title);
+    const na = normalizeTrack(artist);
+    const alreadyIn = (songsDb[dance] || []).some(s =>
+      normalizeTrack(s.title) === nt && normalizeTrack(s.artist) === na
+    );
+    if (!alreadyIn) suggestions.push({ title, artist, dance, votes: count });
+  }
+
+  suggestions.sort((a, b) => b.votes - a.votes);
+  res.json(suggestions);
+});
+
+// Vorschlag freigeben: Song in songs.json einfügen + songIndex live neu aufbauen
+app.post('/admin/feedback/approve', requireAdmin, (req, res) => {
+  const { title, artist, dance } = req.body;
+  if (!title || !dance) return res.status(400).json({ error: 'Fehlende Parameter.' });
+  if (!songsDb[dance]) songsDb[dance] = [];
+
+  const nt = normalizeTrack(title);
+  const na = normalizeTrack(artist || '');
+  const exists = songsDb[dance].some(s =>
+    normalizeTrack(s.title) === nt && normalizeTrack(s.artist) === na
+  );
+  if (exists) return res.json({ success: true, message: 'Bereits vorhanden.' });
+
+  songsDb[dance].push({ title: title.trim(), artist: (artist || '').trim() });
+
+  try {
+    fs.writeFileSync(path.join(__dirname, 'data', 'songs.json'), JSON.stringify(songsDb, null, 2));
+  } catch (e) {
+    return res.status(500).json({ error: 'Konnte songs.json nicht speichern: ' + e.message });
+  }
+
+  // songIndex live neu aufbauen
+  songIndex.clear();
+  for (const [d, list] of Object.entries(songsDb)) {
+    for (const song of list) {
+      const key = normalizeTrack(song.title);
+      if (!key) continue;
+      if (!songIndex.has(key)) songIndex.set(key, []);
+      songIndex.get(key).push({ dance: d, artist: normalizeTrack(song.artist) });
+    }
+  }
+
+  rejectedSuggestions.delete(`${nt}::${na}::${dance}`);
+  console.log(`✅ Feedback-Vorschlag freigegeben: "${title}" → ${dance}`);
+  res.json({ success: true });
+});
+
+// Vorschlag ablehnen (In-Memory, resettet bei Neustart)
+app.post('/admin/feedback/reject', requireAdmin, (req, res) => {
+  const { title, artist, dance } = req.body;
+  if (!title || !dance) return res.status(400).json({ error: 'Fehlende Parameter.' });
+  rejectedSuggestions.add(`${normalizeTrack(title)}::${normalizeTrack(artist || '')}::${dance}`);
+  res.json({ success: true });
+});
+
+// Feedback-CSV herunterladen
+app.get('/admin/feedback.csv', requireAdmin, (req, res) => {
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', 'attachment; filename="musikwunsch-feedback.csv"');
+  res.sendFile(FEEDBACK_FILE);
 });
 
 // ── Spotify OAuth ────────────────────────────────────────────────────────────
