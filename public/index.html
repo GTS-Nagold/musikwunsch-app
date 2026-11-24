@@ -882,10 +882,10 @@ function makeTrackCard(track) {
       <div class="track-name">${esc(track.name)}</div>
       <div class="track-artist">${esc(track.artist)}</div>
     </div>
-    <button class="preview-btn" title="Vorhören">▶</button>
+    <button class="preview-btn" title="${track.uri ? 'Vorhören' : 'Vorhören (bald verfügbar)'}" ${track.uri ? '' : 'disabled style="opacity:.35;cursor:default"'}>▶</button>
     <button class="wish-btn" data-uri="${track.uri}">♡</button>
   `;
-  div.querySelector('.preview-btn').addEventListener('click', e => { e.stopPropagation(); openPreview(track.uri, track.name, track.artist); });
+  if (track.uri) div.querySelector('.preview-btn').addEventListener('click', e => { e.stopPropagation(); openPreview(track.uri, track.name, track.artist); });
   div.querySelector('.wish-btn').addEventListener('click', e => wishSong(e.currentTarget, track));
   return div;
 }
