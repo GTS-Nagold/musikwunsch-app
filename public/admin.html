@@ -108,6 +108,45 @@
       border-radius: .4rem;
     }
 
+    /* Spotify Mini-Player */
+    .spotify-embed-wrapper {
+      margin: .5rem 0 .25rem 0;
+      border-radius: .6rem;
+      overflow: hidden;
+    }
+    .spotify-embed-wrapper iframe {
+      display: block;
+      width: 100%;
+      border: none;
+    }
+    .btn-preview {
+      background: #1db954;
+      color: white;
+      padding: .35rem .6rem;
+      font-size: .78rem;
+      border-radius: .4rem;
+      border: none;
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+    .btn-preview:hover { opacity: .85; }
+
+    /* Wunschliste */
+    .wish-row {
+      display: flex;
+      align-items: flex-start;
+      gap: .5rem;
+      padding: .65rem 0;
+      border-bottom: 1px solid #f0f2f8;
+      font-size: .88rem;
+    }
+    .wish-row:last-child { border-bottom: none; }
+    .wish-name { font-weight: 700; color: var(--blue); min-width: 7rem; flex-shrink: 0; }
+    .wish-song { flex: 1; min-width: 0; }
+    .wish-song strong { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .wish-song span { font-size: .75rem; color: #888; }
+    .wish-time { font-size: .72rem; color: #aaa; white-space: nowrap; flex-shrink: 0; }
+
     /* Toast */
     /* Vorschläge */
     .suggestion-row {
@@ -216,6 +255,17 @@
       </div>
     </div>
 
+    <!-- Musikwünsche-Liste -->
+    <div class="card" id="wishes-card" style="display:none">
+      <h3>🎤 Musikwünsche</h3>
+      <p style="font-size:.82rem;color:#666;margin-bottom:1rem">Alle Wünsche dieser Party – wer hat was gewünscht.</p>
+      <div id="wishes-list"></div>
+      <div style="display:flex;gap:.5rem;margin-top:1rem;flex-wrap:wrap">
+        <button class="btn btn-primary" style="font-size:.85rem" onclick="loadWishes()">🔄 Aktualisieren</button>
+        <a href="/admin/history.csv" class="btn" style="background:#e8eaf6;color:var(--blue);font-size:.85rem;text-decoration:none">⬇ CSV Export</a>
+      </div>
+    </div>
+
     <!-- Song-Vorschläge aus Feedback -->
     <div class="card" id="suggestions-card" style="display:none">
       <h3>🎵 Song-Vorschläge aus Gäste-Feedback</h3>
@@ -267,6 +317,7 @@ async function login() {
     await loadStatus();
     document.getElementById('login-screen').style.display = 'none';
     document.getElementById('admin-panel').style.display = 'block';
+    loadWishes();
     loadSuggestions();
   } catch {
     toast('Falsches Passwort', 'error');
@@ -409,12 +460,15 @@ async function loadSuggestions() {
       const row = document.createElement('div');
       row.className = 'suggestion-row';
       const danceLabel = DANCE_LABELS[s.dance] || s.dance;
-      row.dataset.title  = s.title;
-      row.dataset.artist = s.artist;
-      row.dataset.dance  = s.dance;
+      row.dataset.title    = s.title;
+      row.dataset.artist   = s.artist;
+      row.dataset.dance    = s.dance;
+      row.dataset.spotifyId = s.spotifyId || '';
       const badgeColor = s.votes >= 3 ? 'var(--success)' : s.votes >= 2 ? 'var(--warning)' : '#aaa';
       const ratingLine = (s.up || s.down)
         ? `<span style="font-size:.72rem;color:#888">👍 ${s.up} · 👎 ${s.down}</span>` : '';
+      const previewBtn = s.spotifyId
+        ? `<button class="btn-preview" title="Vorhören">▶</button>` : '';
       row.innerHTML = `
         <div class="suggestion-info">
           <strong>${esc(s.title)}</strong>
@@ -422,11 +476,65 @@ async function loadSuggestions() {
           ${ratingLine}
         </div>
         <span class="badge" style="background:${badgeColor}">${s.votes}×</span>
+        ${previewBtn}
         <button class="btn btn-success" style="padding:.4rem .75rem;font-size:.8rem">✓</button>
         <button class="btn btn-danger"  style="padding:.4rem .75rem;font-size:.8rem">✗</button>
       `;
+      if (s.spotifyId) {
+        row.querySelector('.btn-preview').addEventListener('click', () => togglePreview(row, s.spotifyId));
+      }
       row.querySelector('.btn-success').addEventListener('click', () => approveSuggestion(row));
       row.querySelector('.btn-danger').addEventListener('click',  () => rejectSuggestion(row));
+      list.appendChild(row);
+    });
+  } catch (err) {
+    list.innerHTML = '';
+    toast(err.message, 'error');
+  }
+}
+
+function togglePreview(row, spotifyId) {
+  const existing = row.nextElementSibling;
+  if (existing && existing.classList.contains('spotify-embed-wrapper')) {
+    existing.remove();
+    return;
+  }
+  const wrapper = document.createElement('div');
+  wrapper.className = 'spotify-embed-wrapper';
+  wrapper.innerHTML = `<iframe
+    src="https://open.spotify.com/embed/track/${encodeURIComponent(spotifyId)}?utm_source=generator&theme=0"
+    height="80"
+    allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
+    loading="lazy">
+  </iframe>`;
+  row.after(wrapper);
+}
+
+// ── Musikwünsche-Liste ───────────────────────────────────────────────────────
+async function loadWishes() {
+  const card = document.getElementById('wishes-card');
+  const list = document.getElementById('wishes-list');
+  card.style.display = 'block';
+  list.innerHTML = '<p style="font-size:.85rem;color:#888;padding:.5rem 0">Lade…</p>';
+  try {
+    const wishes = await api('/admin/wishes');
+    if (!wishes.length) {
+      list.innerHTML = '<p style="font-size:.85rem;color:#888;text-align:center;padding:1rem 0">Noch keine Wünsche eingegangen.</p>';
+      return;
+    }
+    list.innerHTML = '';
+    wishes.forEach(w => {
+      const row = document.createElement('div');
+      row.className = 'wish-row';
+      const time = w.timestamp ? new Date(w.timestamp).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) : '–';
+      row.innerHTML = `
+        <div class="wish-name">${esc(w.name)}</div>
+        <div class="wish-song">
+          <strong>${esc(w.title)}</strong>
+          <span>${esc(w.artist || '–')}</span>
+        </div>
+        <div class="wish-time">${time}</div>
+      `;
       list.appendChild(row);
     });
   } catch (err) {

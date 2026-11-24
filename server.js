@@ -538,11 +538,32 @@ app.get('/admin/feedback/suggestions', requireAdmin, (req, res) => {
       normalizeTrack(s.title) === nt && normalizeTrack(s.artist) === na
     );
     const r = ratings.get(key) || { up: 0, down: 0 };
-    if (!alreadyIn) suggestions.push({ title, artist, dance, votes: count, up: r.up, down: r.down });
+    if (!alreadyIn) {
+      // spotifyId: letzten bekannten Wert aus den Feedback-Einträgen nehmen
+      let spotifyId = '';
+      for (const fb of feedbackData) {
+        if (normalizeTrack(fb.title) === parts[0] && normalizeTrack(fb.artist) === parts[1] && fb.spotifyId) {
+          spotifyId = fb.spotifyId;
+          break;
+        }
+      }
+      suggestions.push({ title, artist, dance, votes: count, up: r.up, down: r.down, spotifyId });
+    }
   }
 
   suggestions.sort((a, b) => b.votes - a.votes);
   res.json(suggestions);
+});
+
+// Musikwünsche-Liste: wer hat was gewünscht
+app.get('/admin/wishes', requireAdmin, (req, res) => {
+  const list = [...wishHistory].reverse().map(h => ({
+    timestamp: h.timestamp,
+    name:      h.name || 'Anonym',
+    title:     h.title,
+    artist:    h.artist
+  }));
+  res.json(list);
 });
 
 // Vorschlag freigeben: Song in songs.json einfügen + songIndex live neu aufbauen
