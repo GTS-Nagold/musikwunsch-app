@@ -1,10 +1,15 @@
 #!/usr/bin/env node
 
 /**
- * Cover-Enrichment für Musik-Wunsch-App
+ * Full-Enrichment für Musik-Wunsch-App
  *
- * Liest songs.json, bereichert jeden Song um Album-Cover (image-URL),
- * speichert zu songs.test.json. Abbruchsicher, wiederaufnehmbar, mit Lock.
+ * Liest songs.json, bereichert jeden Song um:
+ *   - image:   Album-Cover URL (Spotify CDN)
+ *   - uri:     Spotify Track URI (spotify:track:xxx) → für Queue + Preview
+ *   - preview: 30s-Vorschau-URL (kann null sein, nicht alle Tracks haben eine)
+ *
+ * Danach: alle lokalen Songs vollständig, null Spotify-Calls bei Suche/Preview.
+ * Abbruchsicher, wiederaufnehmbar, mit Lock.
  *
  * Nutzt separate Spotify-App (COVER_CLIENT_ID/SECRET) falls vorhanden,
  * ansonsten die Live-App (mit Warnung).
@@ -29,6 +34,7 @@ const CHECKPOINT_INTERVAL = 25; // Alle 25 Songs speichern
 const PROGRESS_INTERVAL = 30000; // Alle 30s Fortschritt loggen
 const MAX_RETRIES = 3;
 const BASE_BACKOFF_MS = 1000; // Startwert für Exponential Backoff
+const REQUEST_DELAY_MS = 250;  // Mindestabstand zwischen Spotify-Calls
 
 const args = process.argv.slice(2);
 const isDryRun = args.includes('--dry-run');
@@ -102,8 +108,12 @@ async function searchTrack(title, artist, maxRetries = MAX_RETRIES) {
       });
 
       const track = response.data.tracks?.items?.[0];
-      if (track?.album?.images?.[0]?.url) {
-        return track.album.images[0].url;
+      if (track) {
+        return {
+          image:   track.album?.images?.[0]?.url || null,
+          uri:     track.uri || null,
+          preview: track.preview_url || null
+        };
       }
       return null;
     } catch (err) {
@@ -135,6 +145,10 @@ async function searchTrack(title, artist, maxRetries = MAX_RETRIES) {
   // Alle Retries aufgebraucht
   console.warn(`⚠️ Song nicht gefunden nach ${maxRetries} Versuchen: "${query}"`, lastError?.message);
   return null;
+}
+
+async function sleep(ms) {
+  return new Promise(r => setTimeout(r, ms));
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -243,7 +257,7 @@ async function main() {
     const progressInterval = setInterval(() => {
       const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
       const rate = totalProcessed > 0 ? (totalProcessed / (elapsed / 60)).toFixed(1) : 0;
-      console.log(`📊 Fortschritt: ${totalProcessed} Songs, ${totalCovered} mit Cover (${rate} Songs/Min)`);
+      console.log(`📊 Fortschritt: ${totalProcessed} Songs, ${totalCovered} mit URI+Cover (${rate} Songs/Min)`);
     }, PROGRESS_INTERVAL);
 
     // Verarbeite Stile
@@ -256,24 +270,29 @@ async function main() {
       for (let i = 0; i < songs.length; i++) {
         const song = songs[i];
 
-        // Überspringen wenn bereits Cover vorhanden
-        if (existingProgress[style]?.[i]?.image) {
+        // Überspringen wenn bereits vollständig angereichert (URI vorhanden)
+        if (existingProgress[style]?.[i]?.uri) {
           styleCovered++;
           totalCovered++;
           continue;
         }
 
-        // Cover suchen
-        const imageUrl = isDryRun ? null : await searchTrack(song.title, song.artist);
+        // Delay zwischen Calls (429-Prävention)
+        if (styleProcessed > 0) await sleep(REQUEST_DELAY_MS);
 
-        // Song im Output mit image-Feld updaten
+        // Spotify-Daten holen
+        const result = isDryRun ? null : await searchTrack(song.title, song.artist);
+
+        // Song im Output mit allen Feldern updaten
         if (!existingProgress[style]) existingProgress[style] = [];
         existingProgress[style][i] = {
           ...song,
-          image: imageUrl || null
+          image:   result?.image   || song.image   || null,
+          uri:     result?.uri     || song.uri      || null,
+          preview: result?.preview || song.preview  || null
         };
 
-        if (imageUrl) styleCovered++;
+        if (result?.uri) styleCovered++;
         totalProcessed++;
         styleProcessed++;
 
@@ -287,14 +306,14 @@ async function main() {
 
       // Stil fertig → Checkpoint speichern
       saveProgress(outputPath, existingProgress);
-      console.log(`  🎯 Fertig: ${styleProcessed} Songs, ${styleCovered} mit Cover (${(styleCovered / styleProcessed * 100).toFixed(1)}%)`);
+      console.log(`  🎯 Fertig: ${styleProcessed} Songs, ${styleCovered} mit URI+Cover (${(styleCovered / styleProcessed * 100).toFixed(1)}%)`);
     }
 
     clearInterval(progressInterval);
 
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
     console.log(`\n✨ Fertig!`);
-    console.log(`   ${totalProcessed} Songs verarbeitet, ${totalCovered} mit Cover (${(totalCovered / totalProcessed * 100).toFixed(1)}%)`);
+    console.log(`   ${totalProcessed} Songs verarbeitet, ${totalCovered} mit URI+Cover (${(totalCovered / totalProcessed * 100).toFixed(1)}%)`);
     console.log(`   Zeit: ${elapsed}s`);
     console.log(`   Output: ${outputPath}`);
 

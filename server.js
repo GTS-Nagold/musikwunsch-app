@@ -320,10 +320,14 @@ function localSearch(query) {
       if (matchCount === 0) continue;
       const titleExact = norm(song.title).includes(q) ? 2 : 0;
       seen.set(key, {
-        id: null, uri: null, local: true,
-        name: song.title, artist: song.artist || '',
-        image: song.image || null,
-        _score: matchCount + titleExact
+        id:      song.uri ? song.uri.split(':')[2] || null : null,
+        uri:     song.uri     || null,
+        preview: song.preview || null,
+        local:   true,
+        name:    song.title,
+        artist:  song.artist || '',
+        image:   song.image  || null,
+        _score:  matchCount + titleExact
       });
     }
   }
