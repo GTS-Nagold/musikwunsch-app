@@ -302,15 +302,56 @@ app.get('/api/now-playing', requireParty, async (req, res) => {
   }
 });
 
-// Spotify-Freisuche
+// ── Lokale Suche in songs.json (kein Spotify-Call) ───────────────────────────
+function localSearch(query) {
+  const norm = s => String(s || '').toLowerCase().normalize('NFD')
+    .replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
+  const q = norm(query);
+  const terms = q.split(' ').filter(t => t.length > 1);
+  if (!terms.length) return [];
+
+  const seen = new Map(); // "title::artist" → entry
+  for (const [, songs] of Object.entries(songsDb)) {
+    for (const song of songs) {
+      const key = `${song.title}::${song.artist}`;
+      if (seen.has(key)) continue;
+      const hay = norm(song.title) + ' ' + norm(song.artist);
+      const matchCount = terms.filter(t => hay.includes(t)).length;
+      if (matchCount === 0) continue;
+      const titleExact = norm(song.title).includes(q) ? 2 : 0;
+      seen.set(key, {
+        id: null, uri: null, local: true,
+        name: song.title, artist: song.artist || '',
+        image: song.image || null,
+        _score: matchCount + titleExact
+      });
+    }
+  }
+  return [...seen.values()].sort((a, b) => b._score - a._score).slice(0, 10)
+    .map(({ _score, ...rest }) => rest); // _score nicht ans Frontend
+}
+
+// Suche: lokal zuerst, Spotify nur als Fallback
 app.get('/api/search', requireParty, async (req, res) => {
   const q = (req.query.q || '').trim();
   if (q.length < 2) return res.json([]);
+
+  const local = localSearch(q);
+
+  // Spotify überspringen wenn genug lokale Treffer ODER Account gerade gedrosselt
+  if (local.length >= 4 || spotify.isThrottled()) {
+    return res.json(local);
+  }
+
   try {
-    res.json(await spotify.search(q));
+    const remote = await spotify.search(q);
+    // Lokale Treffer die nicht in Spotify-Ergebnissen auftauchen, hinten dranhängen
+    const remoteKeys = new Set(remote.map(t => normalizeTrack(t.name)));
+    const extra = local.filter(l => !remoteKeys.has(normalizeTrack(l.name)));
+    return res.json([...remote, ...extra].slice(0, 10));
   } catch (err) {
     console.error('Suche:', err.message);
-    res.status(500).json({ error: err.message });
+    return res.json(local); // Fallback auf lokale Ergebnisse
   }
 });
 

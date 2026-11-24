@@ -907,10 +907,16 @@ async function wishSong(btn, track) {
   btn.innerHTML = '<span class="spinner"></span>';
 
   try {
-    const result = await api('/api/wish', {
-      method: 'POST',
-      body: JSON.stringify({ trackUri: track.uri, sessionId: SESSION_ID, guestName: GUEST_NAME, trackName: track.name, trackArtist: track.artist })
-    });
+    // Lokale Ergebnisse (kein URI) → Server sucht die URI selbst per wish-by-name
+    const result = track.uri
+      ? await api('/api/wish', {
+          method: 'POST',
+          body: JSON.stringify({ trackUri: track.uri, sessionId: SESSION_ID, guestName: GUEST_NAME, trackName: track.name, trackArtist: track.artist })
+        })
+      : await api('/api/wish-by-name', {
+          method: 'POST',
+          body: JSON.stringify({ name: track.name, artist: track.artist, sessionId: SESSION_ID, guestName: GUEST_NAME })
+        });
 
     // Erfolg
     btn.className = 'wish-btn done';

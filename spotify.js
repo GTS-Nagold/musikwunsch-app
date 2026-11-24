@@ -130,6 +130,10 @@ class SpotifyClient {
     return !!(this.refreshToken || this.accessToken);
   }
 
+  isThrottled() {
+    return Date.now() < this._retryAfterUntil;
+  }
+
   // ── Spotify API ──────────────────────────────────────────────────────────
 
   async getPlaybackState() {
