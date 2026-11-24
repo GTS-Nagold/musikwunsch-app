@@ -558,7 +558,7 @@ app.post('/admin/feedback/approve', requireAdmin, (req, res) => {
   );
   if (exists) return res.json({ success: true, message: 'Bereits vorhanden.' });
 
-  songsDb[dance].push({ title: title.trim(), artist: (artist || '').trim() });
+  songsDb[dance].unshift({ title: title.trim(), artist: (artist || '').trim() });
 
   try {
     fs.writeFileSync(path.join(__dirname, 'data', 'songs.json'), JSON.stringify(songsDb, null, 2));

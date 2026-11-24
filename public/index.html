@@ -684,7 +684,7 @@ function openFeedbackModal() {
   const btn = document.getElementById('fb-submit-btn');
   btn.disabled = alreadyVoted;
   btn.textContent = alreadyVoted ? '✓ Bereits bewertet – danke!' : 'Absenden ✓';
-  btn.style.background = alreadyVoted ? 'var(--muted)' : '';
+  btn.style.background = alreadyVoted ? 'var(--muted)' : 'var(--blue)';
 
   document.getElementById('feedback-modal').style.display = 'flex';
 }
