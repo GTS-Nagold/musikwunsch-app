@@ -14,18 +14,47 @@ class SpotifyClient {
     this.refreshToken = process.env.SPOTIFY_REFRESH_TOKEN || null;
     this._queueCache = null;
     this._queueCacheTime = 0;
-    this._queueRawCache = null;      // Raw-Response für getQueueInfo
+    this._queueRawCache = null;
     this._queueRawCacheTime = 0;
-    this._searchCache = new Map();   // query → { results, time }
-    this._lastRequestTime = 0;       // globaler Throttle
+    this._searchCache = new Map();
+    this._lastRequestTime = 0;
+    this._requestChain = Promise.resolve(); // serialisierender Request-Queue
+    this._refreshPromise = null;            // Token-Refresh-Dedup
+    this._retryAfterUntil = 0;             // 429 Retry-After Sperre
     this._loadTokens();
   }
 
-  // ── Globaler Rate-Throttle (min. 150ms zwischen Spotify-Calls) ───────────
-  async _throttle() {
-    const wait = Math.max(0, this._lastRequestTime + 150 - Date.now());
-    if (wait > 0) await new Promise(r => setTimeout(r, wait));
-    this._lastRequestTime = Date.now();
+  // ── Serialisierender Request-Queue ───────────────────────────────────────
+  // Alle Spotify API-Calls laufen nacheinander, min. 150ms Abstand.
+  // Race Conditions und Bursts sind damit strukturell unmöglich.
+  _enqueue(fn) {
+    const result = this._requestChain.then(async () => {
+      // 429-Sperre respektieren
+      const retryWait = Math.max(0, this._retryAfterUntil - Date.now());
+      if (retryWait > 0) {
+        console.log(`⏳ Spotify 429-Sperre – warte ${Math.round(retryWait/1000)}s`);
+        await new Promise(r => setTimeout(r, retryWait));
+      }
+      // Mindestabstand 150ms zum letzten Call
+      const gap = Math.max(0, this._lastRequestTime + 150 - Date.now());
+      if (gap > 0) await new Promise(r => setTimeout(r, gap));
+      this._lastRequestTime = Date.now();
+      try {
+        return await fn();
+      } catch (err) {
+        // 429: Retry-After aus Header lesen und Sperre setzen
+        const status = err.response?.status;
+        if (status === 429) {
+          const retryAfter = parseInt(err.response?.headers?.['retry-after'] || '10', 10);
+          this._retryAfterUntil = Date.now() + retryAfter * 1000;
+          console.warn(`⚠️ Spotify 429 – gesperrt für ${retryAfter}s`);
+        }
+        throw err;
+      }
+    });
+    // Chain immer weiterführen, auch bei Fehler
+    this._requestChain = result.catch(() => {});
+    return result;
   }
 
   // ── Token-Verwaltung ─────────────────────────────────────────────────────
@@ -72,16 +101,22 @@ class SpotifyClient {
   }
 
   async _refreshAccessToken() {
+    // Dedup: wenn Refresh schon läuft, dasselbe Promise zurückgeben
+    if (this._refreshPromise) return this._refreshPromise;
     if (!this.refreshToken) throw new Error('Kein Refresh Token. Bitte /auth aufrufen.');
-    const resp = await axios.post(
+    this._refreshPromise = axios.post(
       'https://accounts.spotify.com/api/token',
       new URLSearchParams({ grant_type: 'refresh_token', refresh_token: this.refreshToken }),
       { headers: { 'Content-Type': 'application/x-www-form-urlencoded', Authorization: this._basicAuth() } }
-    );
-    this.accessToken = resp.data.access_token;
-    if (resp.data.refresh_token) this.refreshToken = resp.data.refresh_token;
-    this.tokenExpiry = Date.now() + (resp.data.expires_in - 60) * 1000;
-    this._saveTokens();
+    ).then(resp => {
+      this.accessToken = resp.data.access_token;
+      if (resp.data.refresh_token) this.refreshToken = resp.data.refresh_token;
+      this.tokenExpiry = Date.now() + (resp.data.expires_in - 60) * 1000;
+      this._saveTokens();
+    }).finally(() => {
+      this._refreshPromise = null;
+    });
+    return this._refreshPromise;
   }
 
   async _headers() {
@@ -99,9 +134,10 @@ class SpotifyClient {
 
   async getPlaybackState() {
     try {
-      await this._throttle();
-      const resp = await axios.get('https://api.spotify.com/v1/me/player', { headers: await this._headers() });
-      return resp.data || null;
+      return await this._enqueue(async () => {
+        const resp = await axios.get('https://api.spotify.com/v1/me/player', { headers: await this._headers() });
+        return resp.data || null;
+      });
     } catch {
       return null;
     }
@@ -112,19 +148,20 @@ class SpotifyClient {
     const cached = this._searchCache.get(key);
     if (cached && Date.now() - cached.time < 30_000) return cached.results;
 
-    await this._throttle();
-    const url = `https://api.spotify.com/v1/search?q=${encodeURIComponent(query)}&type=track&limit=10`;
-    const resp = await axios.get(url, { headers: await this._headers() });
-    const results = (resp.data.tracks?.items || []).map(t => ({
-      id: t.id,
-      uri: t.uri,
-      name: t.name,
-      artist: (t.artists || []).map(a => a.name).join(', '),
-      image: t.album?.images?.[2]?.url || t.album?.images?.[0]?.url || null,
-      preview: t.preview_url || null
-    }));
+    const results = await this._enqueue(async () => {
+      // Double-check cache (ein anderer Request könnte inzwischen gecacht haben)
+      const c = this._searchCache.get(key);
+      if (c && Date.now() - c.time < 30_000) return c.results;
+      const url = `https://api.spotify.com/v1/search?q=${encodeURIComponent(query)}&type=track&limit=10`;
+      const resp = await axios.get(url, { headers: await this._headers() });
+      return (resp.data.tracks?.items || []).map(t => ({
+        id: t.id, uri: t.uri, name: t.name,
+        artist: (t.artists || []).map(a => a.name).join(', '),
+        image: t.album?.images?.[2]?.url || t.album?.images?.[0]?.url || null,
+        preview: t.preview_url || null
+      }));
+    });
 
-    // Cache aufräumen wenn > 200 Einträge (Speicherschutz)
     if (this._searchCache.size > 200) {
       const oldest = [...this._searchCache.entries()].sort((a, b) => a[1].time - b[1].time)[0][0];
       this._searchCache.delete(oldest);
@@ -136,17 +173,21 @@ class SpotifyClient {
   async _fetchQueueRaw() {
     const now = Date.now();
     if (this._queueRawCache && now - this._queueRawCacheTime < 8_000) return this._queueRawCache;
-    await this._throttle();
-    const resp = await axios.get('https://api.spotify.com/v1/me/player/queue', { headers: await this._headers() });
-    this._queueRawCache = resp.data;
-    this._queueRawCacheTime = now;
-    // URI-Liste für isInQueue mitaktualisieren
-    const uris = [];
-    if (resp.data.currently_playing?.uri) uris.push(resp.data.currently_playing.uri);
-    (resp.data.queue || []).forEach(t => { if (t.uri) uris.push(t.uri); });
-    this._queueCache = uris;
-    this._queueCacheTime = now;
-    return resp.data;
+
+    return this._enqueue(async () => {
+      // Double-check cache
+      const n = Date.now();
+      if (this._queueRawCache && n - this._queueRawCacheTime < 8_000) return this._queueRawCache;
+      const resp = await axios.get('https://api.spotify.com/v1/me/player/queue', { headers: await this._headers() });
+      this._queueRawCache = resp.data;
+      this._queueRawCacheTime = Date.now();
+      const uris = [];
+      if (resp.data.currently_playing?.uri) uris.push(resp.data.currently_playing.uri);
+      (resp.data.queue || []).forEach(t => { if (t.uri) uris.push(t.uri); });
+      this._queueCache = uris;
+      this._queueCacheTime = this._queueRawCacheTime;
+      return resp.data;
+    });
   }
 
   async getQueue() {
@@ -170,15 +211,15 @@ class SpotifyClient {
   }
 
   async addToQueue(trackUri) {
-    await this._throttle();
-    await axios.post(
-      `https://api.spotify.com/v1/me/player/queue?uri=${encodeURIComponent(trackUri)}`,
-      null,
-      { headers: await this._headers() }
-    );
-    // Caches invalidieren
-    this._queueCache = null;
-    this._queueRawCache = null;
+    return this._enqueue(async () => {
+      await axios.post(
+        `https://api.spotify.com/v1/me/player/queue?uri=${encodeURIComponent(trackUri)}`,
+        null,
+        { headers: await this._headers() }
+      );
+      this._queueCache = null;
+      this._queueRawCache = null;
+    });
   }
 }
 
