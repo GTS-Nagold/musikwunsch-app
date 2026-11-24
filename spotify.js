@@ -14,7 +14,18 @@ class SpotifyClient {
     this.refreshToken = process.env.SPOTIFY_REFRESH_TOKEN || null;
     this._queueCache = null;
     this._queueCacheTime = 0;
+    this._queueRawCache = null;      // Raw-Response für getQueueInfo
+    this._queueRawCacheTime = 0;
+    this._searchCache = new Map();   // query → { results, time }
+    this._lastRequestTime = 0;       // globaler Throttle
     this._loadTokens();
+  }
+
+  // ── Globaler Rate-Throttle (min. 150ms zwischen Spotify-Calls) ───────────
+  async _throttle() {
+    const wait = Math.max(0, this._lastRequestTime + 150 - Date.now());
+    if (wait > 0) await new Promise(r => setTimeout(r, wait));
+    this._lastRequestTime = Date.now();
   }
 
   // ── Token-Verwaltung ─────────────────────────────────────────────────────
@@ -88,6 +99,7 @@ class SpotifyClient {
 
   async getPlaybackState() {
     try {
+      await this._throttle();
       const resp = await axios.get('https://api.spotify.com/v1/me/player', { headers: await this._headers() });
       return resp.data || null;
     } catch {
@@ -96,11 +108,14 @@ class SpotifyClient {
   }
 
   async search(query) {
+    const key = query.toLowerCase().trim();
+    const cached = this._searchCache.get(key);
+    if (cached && Date.now() - cached.time < 30_000) return cached.results;
+
+    await this._throttle();
     const url = `https://api.spotify.com/v1/search?q=${encodeURIComponent(query)}&type=track&limit=10`;
-    const resp = await axios.get(url, {
-      headers: await this._headers()
-    });
-    return (resp.data.tracks?.items || []).map(t => ({
+    const resp = await axios.get(url, { headers: await this._headers() });
+    const results = (resp.data.tracks?.items || []).map(t => ({
       id: t.id,
       uri: t.uri,
       name: t.name,
@@ -108,18 +123,37 @@ class SpotifyClient {
       image: t.album?.images?.[2]?.url || t.album?.images?.[0]?.url || null,
       preview: t.preview_url || null
     }));
+
+    // Cache aufräumen wenn > 200 Einträge (Speicherschutz)
+    if (this._searchCache.size > 200) {
+      const oldest = [...this._searchCache.entries()].sort((a, b) => a[1].time - b[1].time)[0][0];
+      this._searchCache.delete(oldest);
+    }
+    this._searchCache.set(key, { results, time: Date.now() });
+    return results;
   }
 
-  async getQueue() {
+  async _fetchQueueRaw() {
     const now = Date.now();
-    if (this._queueCache && now - this._queueCacheTime < 8000) return this._queueCache;
+    if (this._queueRawCache && now - this._queueRawCacheTime < 8_000) return this._queueRawCache;
+    await this._throttle();
     const resp = await axios.get('https://api.spotify.com/v1/me/player/queue', { headers: await this._headers() });
+    this._queueRawCache = resp.data;
+    this._queueRawCacheTime = now;
+    // URI-Liste für isInQueue mitaktualisieren
     const uris = [];
     if (resp.data.currently_playing?.uri) uris.push(resp.data.currently_playing.uri);
     (resp.data.queue || []).forEach(t => { if (t.uri) uris.push(t.uri); });
     this._queueCache = uris;
     this._queueCacheTime = now;
-    return uris;
+    return resp.data;
+  }
+
+  async getQueue() {
+    const now = Date.now();
+    if (this._queueCache && now - this._queueCacheTime < 8_000) return this._queueCache;
+    await this._fetchQueueRaw();
+    return this._queueCache;
   }
 
   async isInQueue(trackUri) {
@@ -127,21 +161,24 @@ class SpotifyClient {
   }
 
   async getQueueInfo() {
-    const resp = await axios.get('https://api.spotify.com/v1/me/player/queue', { headers: await this._headers() });
+    const data = await this._fetchQueueRaw();
     const fmt = t => t ? { name: t.name, artist: (t.artists || []).map(a => a.name).join(', '), uri: t.uri } : null;
     return {
-      currentlyPlaying: fmt(resp.data.currently_playing),
-      queue: (resp.data.queue || []).slice(0, 30).map(fmt)
+      currentlyPlaying: fmt(data.currently_playing),
+      queue: (data.queue || []).slice(0, 30).map(fmt)
     };
   }
 
   async addToQueue(trackUri) {
+    await this._throttle();
     await axios.post(
       `https://api.spotify.com/v1/me/player/queue?uri=${encodeURIComponent(trackUri)}`,
       null,
       { headers: await this._headers() }
     );
+    // Caches invalidieren
     this._queueCache = null;
+    this._queueRawCache = null;
   }
 }
 
