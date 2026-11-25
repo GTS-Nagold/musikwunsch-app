@@ -544,9 +544,9 @@ async function loadWishes() {
 }
 
 async function approveSuggestion(row) {
-  const { title, artist, dance } = row.dataset;
+  const { title, artist, dance, spotifyId } = row.dataset;
   try {
-    await api('/admin/feedback/approve', { method: 'POST', body: JSON.stringify({ title, artist, dance }) });
+    await api('/admin/feedback/approve', { method: 'POST', body: JSON.stringify({ title, artist, dance, spotifyId: spotifyId || null }) });
     row.remove();
     toast(`✅ „${title}" → ${DANCE_LABELS[dance] || dance} freigegeben`, 'success');
   } catch (err) { toast(err.message, 'error'); }

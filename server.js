@@ -626,9 +626,58 @@ app.get('/admin/wishes', requireAdmin, (req, res) => {
   res.json(list);
 });
 
+// ── Hilfsfunktion: Song in songsDb mit URI/Cover anreichern und speichern ──────
+function saveSongsDb() {
+  try {
+    fs.writeFileSync(path.join(__dirname, 'data', 'songs.json'), JSON.stringify(songsDb, null, 2));
+  } catch (e) {
+    console.warn('⚠️ songs.json speichern fehlgeschlagen:', e.message);
+  }
+}
+
+function rebuildSongIndex() {
+  songIndex.clear();
+  for (const [d, list] of Object.entries(songsDb)) {
+    for (const song of list) {
+      const key = normalizeTrack(song.title);
+      if (!key) continue;
+      if (!songIndex.has(key)) songIndex.set(key, []);
+      songIndex.get(key).push({ dance: d, artist: normalizeTrack(song.artist) });
+    }
+  }
+}
+
+// Holt URI/Cover/Preview für einen Song und schreibt es zurück in songs.json
+// Läuft asynchron im Hintergrund – blockiert nichts.
+async function enrichSongInBackground(dance, title, artist, knownSpotifyId) {
+  if (spotify.isThrottled()) return; // Bei Sperre sofort aufgeben
+  try {
+    const query = artist ? `${title} ${artist}` : title;
+    const results = await spotify.search(query);
+    const track = knownSpotifyId
+      ? results.find(r => r.id === knownSpotifyId) || results[0]
+      : results[0];
+    if (!track) return;
+
+    const songs = songsDb[dance] || [];
+    const nt = normalizeTrack(title);
+    const na = normalizeTrack(artist || '');
+    const idx = songs.findIndex(s =>
+      normalizeTrack(s.title) === nt && normalizeTrack(s.artist) === na
+    );
+    if (idx === -1) return;
+
+    songs[idx] = { ...songs[idx], uri: track.uri, image: track.image || songs[idx].image || null, preview: track.preview || null };
+    saveSongsDb();
+    console.log(`🎵 Angereichert: "${title}" → URI gespeichert`);
+  } catch (e) {
+    // Leise scheitern – nächste Party oder Batch-Lauf holt es nach
+  }
+}
+
 // Vorschlag freigeben: Song in songs.json einfügen + songIndex live neu aufbauen
 app.post('/admin/feedback/approve', requireAdmin, (req, res) => {
-  const { title, artist, dance } = req.body;
+  const { title, artist, dance, spotifyId } = req.body;
   if (!title || !dance) return res.status(400).json({ error: 'Fehlende Parameter.' });
   if (!songsDb[dance]) songsDb[dance] = [];
 
@@ -639,28 +688,31 @@ app.post('/admin/feedback/approve', requireAdmin, (req, res) => {
   );
   if (exists) return res.json({ success: true, message: 'Bereits vorhanden.' });
 
-  songsDb[dance].unshift({ title: title.trim(), artist: (artist || '').trim() });
+  // Song einfügen – URI direkt aus spotifyId wenn vorhanden
+  const newSong = {
+    title:  title.trim(),
+    artist: (artist || '').trim(),
+    uri:    spotifyId ? `spotify:track:${spotifyId}` : null,
+    image:  null,
+    preview: null
+  };
+  songsDb[dance].unshift(newSong);
 
   try {
-    fs.writeFileSync(path.join(__dirname, 'data', 'songs.json'), JSON.stringify(songsDb, null, 2));
+    saveSongsDb();
   } catch (e) {
     return res.status(500).json({ error: 'Konnte songs.json nicht speichern: ' + e.message });
   }
 
-  // songIndex live neu aufbauen
-  songIndex.clear();
-  for (const [d, list] of Object.entries(songsDb)) {
-    for (const song of list) {
-      const key = normalizeTrack(song.title);
-      if (!key) continue;
-      if (!songIndex.has(key)) songIndex.set(key, []);
-      songIndex.get(key).push({ dance: d, artist: normalizeTrack(song.artist) });
-    }
-  }
-
+  rebuildSongIndex();
   rejectedSuggestions.delete(`${nt}::${na}::${dance}`);
   console.log(`✅ Feedback-Vorschlag freigegeben: "${title}" → ${dance}`);
   res.json({ success: true });
+
+  // Cover + Preview im Hintergrund nachholen (URI haben wir ggf. schon)
+  if (!newSong.image || !newSong.preview) {
+    enrichSongInBackground(dance, title, artist, spotifyId || null);
+  }
 });
 
 // Vorschlag ablehnen (In-Memory, resettet bei Neustart)
