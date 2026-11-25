@@ -2,7 +2,8 @@ const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
 
-const TOKEN_FILE = path.join(__dirname, '.tokens.json');
+const TOKEN_FILE    = path.join(__dirname, '.tokens.json');
+const THROTTLE_FILE = path.join(__dirname, '.spotify-throttle.json');
 
 class SpotifyClient {
   constructor() {
@@ -20,8 +21,36 @@ class SpotifyClient {
     this._lastRequestTime = 0;
     this._requestChain = Promise.resolve(); // serialisierender Request-Queue
     this._refreshPromise = null;            // Token-Refresh-Dedup
-    this._retryAfterUntil = 0;             // 429 Retry-After Sperre
+    this._retryAfterUntil = 0;             // 429 Retry-After Sperre (auch persistent)
     this._loadTokens();
+    this._loadThrottle();                  // Sperre über Neustarts hinaus laden
+  }
+
+  // ── Persistente 429-Sperre ───────────────────────────────────────────────
+  _loadThrottle() {
+    try {
+      if (fs.existsSync(THROTTLE_FILE)) {
+        const { until } = JSON.parse(fs.readFileSync(THROTTLE_FILE, 'utf8'));
+        if (until && until > Date.now()) {
+          this._retryAfterUntil = until;
+          const remaining = Math.round((until - Date.now()) / 1000);
+          console.warn(`⚠️ Spotify-Sperre aus letzter Session geladen – noch ${remaining}s gesperrt`);
+        } else {
+          // Abgelaufen → Datei löschen
+          fs.unlinkSync(THROTTLE_FILE);
+        }
+      }
+    } catch {}
+  }
+
+  _saveThrottle() {
+    try {
+      if (this._retryAfterUntil > Date.now()) {
+        fs.writeFileSync(THROTTLE_FILE, JSON.stringify({ until: this._retryAfterUntil }));
+      } else if (fs.existsSync(THROTTLE_FILE)) {
+        fs.unlinkSync(THROTTLE_FILE);
+      }
+    } catch {}
   }
 
   // ── Serialisierender Request-Queue ───────────────────────────────────────
@@ -47,6 +76,7 @@ class SpotifyClient {
         if (status === 429) {
           const retryAfter = parseInt(err.response?.headers?.['retry-after'] || '10', 10);
           this._retryAfterUntil = Date.now() + retryAfter * 1000;
+          this._saveThrottle(); // Sperre persistent speichern – überlebt Neustart
           console.warn(`⚠️ Spotify 429 – gesperrt für ${retryAfter}s`);
         }
         throw err;
