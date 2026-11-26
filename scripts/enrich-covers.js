@@ -34,7 +34,7 @@ const CHECKPOINT_INTERVAL = 25; // Alle 25 Songs speichern
 const PROGRESS_INTERVAL = 30000; // Alle 30s Fortschritt loggen
 const MAX_RETRIES = 3;
 const BASE_BACKOFF_MS = 1000; // Startwert für Exponential Backoff
-const REQUEST_DELAY_MS = 250;  // Mindestabstand zwischen Spotify-Calls
+const REQUEST_DELAY_MS = 1000; // Mindestabstand zwischen Spotify-Calls (1s = ~62 Min für alle Songs)
 
 const args = process.argv.slice(2);
 const isDryRun = args.includes('--dry-run');
@@ -48,44 +48,85 @@ if (!isAllStyles && !targetStyle) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Spotify API Setup
+// Spotify API Setup – Multi-App mit automatischem Wechsel bei 429
 // ─────────────────────────────────────────────────────────────────────────────
 
-const spotifyConfig = {
-  clientId: process.env.COVER_CLIENT_ID || process.env.SPOTIFY_CLIENT_ID,
-  clientSecret: process.env.COVER_CLIENT_SECRET || process.env.SPOTIFY_CLIENT_SECRET,
-  usesSeparateApp: !!(process.env.COVER_CLIENT_ID && process.env.COVER_CLIENT_SECRET),
-};
+const SWITCH_THRESHOLD = 3; // Nach X aufeinanderfolgenden 429-Songs → App wechseln
 
-if (!spotifyConfig.clientId || !spotifyConfig.clientSecret) {
+// Alle verfügbaren Credential-Sets laden
+const credentialSets = [];
+if (process.env.COVER_CLIENT_ID && process.env.COVER_CLIENT_SECRET) {
+  credentialSets.push({ clientId: process.env.COVER_CLIENT_ID, clientSecret: process.env.COVER_CLIENT_SECRET, name: 'App 1' });
+}
+if (process.env.COVER_CLIENT_ID_2 && process.env.COVER_CLIENT_SECRET_2 &&
+    process.env.COVER_CLIENT_ID_2 !== 'HIER_EINTRAGEN') {
+  credentialSets.push({ clientId: process.env.COVER_CLIENT_ID_2, clientSecret: process.env.COVER_CLIENT_SECRET_2, name: 'App 2' });
+}
+if (credentialSets.length === 0) {
+  // Fallback auf Live-App
+  credentialSets.push({ clientId: process.env.SPOTIFY_CLIENT_ID, clientSecret: process.env.SPOTIFY_CLIENT_SECRET, name: 'Live-App ⚠️' });
+}
+
+if (!credentialSets[0].clientId) {
   console.error('❌ Fehler: SPOTIFY_CLIENT_ID/SECRET nicht gesetzt');
   process.exit(1);
 }
 
+let currentCredIndex = 0;
+let consecutive429Songs = 0;
+const blockedApps = new Set(); // Apps die bereits 429-geblockt sind
 let spotifyAccessToken = null;
 let spotifyTokenExpiry = 0;
 
 async function refreshSpotifyToken() {
+  const cred = credentialSets[currentCredIndex];
   try {
-    const auth = Buffer.from(`${spotifyConfig.clientId}:${spotifyConfig.clientSecret}`).toString('base64');
+    const auth = Buffer.from(`${cred.clientId}:${cred.clientSecret}`).toString('base64');
     const response = await axios.post('https://accounts.spotify.com/api/token',
       'grant_type=client_credentials',
-      {
-        headers: {
-          'Authorization': `Basic ${auth}`,
-          'Content-Type': 'application/x-www-form-urlencoded'
-        }
-      }
+      { headers: { 'Authorization': `Basic ${auth}`, 'Content-Type': 'application/x-www-form-urlencoded' } }
     );
     spotifyAccessToken = response.data.access_token;
     spotifyTokenExpiry = Date.now() + (response.data.expires_in - 60) * 1000;
-    console.log(`✅ Spotify Token erneuert (Kontingent: ${spotifyConfig.usesSeparateApp ? 'SEPARATE App' : '⚠️ LIVE App'})`);
+    console.log(`✅ Spotify Token erneuert (${cred.name})`);
   } catch (err) {
     console.error('❌ Token-Refresh fehlgeschlagen:', err.message);
     throw err;
   }
 }
 
+// Gibt false zurück wenn alle Apps blockiert sind → Script soll abbrechen
+async function switchToNextApp() {
+  // Aktuelle App als blockiert markieren
+  blockedApps.add(currentCredIndex);
+  console.warn(`🚫 ${credentialSets[currentCredIndex].name} blockiert (429)`);
+
+  // Nächste nicht-blockierte App suchen
+  let nextIndex = null;
+  for (let i = 1; i <= credentialSets.length; i++) {
+    const candidate = (currentCredIndex + i) % credentialSets.length;
+    if (!blockedApps.has(candidate)) {
+      nextIndex = candidate;
+      break;
+    }
+  }
+
+  if (nextIndex === null) {
+    console.error(`\n❌ ALLE ${credentialSets.length} APPS BLOCKIERT (429-Rate-Limit)`);
+    console.error(`   Bitte warten bis die Spotify-Sperre abläuft (~22h) und dann neu starten.`);
+    console.error(`   Bereits angereicherte Songs sind in songs.test.json gespeichert.`);
+    return false;
+  }
+
+  console.log(`🔄 Wechsle zu ${credentialSets[nextIndex].name}`);
+  currentCredIndex = nextIndex;
+  spotifyTokenExpiry = 0;
+  consecutive429Songs = 0;
+  await refreshSpotifyToken();
+  return true;
+}
+
+// Gibt { image, uri, preview } zurück, null wenn nicht gefunden, { rateLimited: true } bei 429
 async function searchTrack(title, artist, maxRetries = MAX_RETRIES) {
   if (Date.now() > spotifyTokenExpiry) {
     await refreshSpotifyToken();
@@ -93,20 +134,14 @@ async function searchTrack(title, artist, maxRetries = MAX_RETRIES) {
 
   const query = `${title} ${artist}`.trim();
   let lastError;
+  let wasRateLimited = false;
 
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
       const response = await axios.get('https://api.spotify.com/v1/search', {
-        params: {
-          q: query,
-          type: 'track',
-          limit: 1
-        },
-        headers: {
-          'Authorization': `Bearer ${spotifyAccessToken}`
-        }
+        params: { q: query, type: 'track', limit: 1 },
+        headers: { 'Authorization': `Bearer ${spotifyAccessToken}` }
       });
-
       const track = response.data.tracks?.items?.[0];
       if (track) {
         return {
@@ -121,20 +156,16 @@ async function searchTrack(title, artist, maxRetries = MAX_RETRIES) {
       const status = err.response?.status;
 
       if (status === 429) {
-        // Rate limit – Exponential Backoff
+        wasRateLimited = true;
         const backoffMs = BASE_BACKOFF_MS * Math.pow(2, attempt);
         console.warn(`⏳ 429 Rate Limit (Versuch ${attempt + 1}/${maxRetries}) – warte ${backoffMs}ms...`);
         await new Promise(r => setTimeout(r, backoffMs));
         continue;
       }
-
       if (status === 401) {
-        // Token ungültig
         await refreshSpotifyToken();
         continue;
       }
-
-      // Andere Fehler: retry
       if (attempt < maxRetries - 1) {
         await new Promise(r => setTimeout(r, 100));
         continue;
@@ -142,9 +173,8 @@ async function searchTrack(title, artist, maxRetries = MAX_RETRIES) {
     }
   }
 
-  // Alle Retries aufgebraucht
   console.warn(`⚠️ Song nicht gefunden nach ${maxRetries} Versuchen: "${query}"`, lastError?.message);
-  return null;
+  return wasRateLimited ? { rateLimited: true } : null;
 }
 
 async function sleep(ms) {
@@ -240,11 +270,7 @@ async function main() {
     const targetStyles = isAllStyles ? Object.keys(songsDb) : [targetStyle];
 
     console.log(`🎵 Zielstile: ${targetStyles.join(', ')}`);
-    console.log(`${spotifyConfig.usesSeparateApp ? '✅' : '⚠️'} Spotify-App: ${spotifyConfig.usesSeparateApp ? 'SEPARATE (sicher)' : 'LIVE (riskant – warnung!)'}`);
-
-    if (!spotifyConfig.usesSeparateApp) {
-      console.warn('⚠️  WARNUNG: Nutze die Live-App! Separate App empfohlen – siehe Anleitung.');
-    }
+    console.log(`✅ Verfügbare Apps: ${credentialSets.map(c => c.name).join(', ')} → Auto-Wechsel bei ${SWITCH_THRESHOLD}× 429`);
 
     // Token holen
     await refreshSpotifyToken();
@@ -277,11 +303,27 @@ async function main() {
           continue;
         }
 
-        // Delay zwischen Calls (429-Prävention)
-        if (styleProcessed > 0) await sleep(REQUEST_DELAY_MS);
+        // Delay zwischen Calls (429-Prävention, auch beim ersten Song)
+        await sleep(REQUEST_DELAY_MS);
 
         // Spotify-Daten holen
         const result = isDryRun ? null : await searchTrack(song.title, song.artist);
+
+        // 429-Tracking: bei Schwelle App wechseln, bei allen gesperrt → abbrechen
+        if (result?.rateLimited) {
+          consecutive429Songs++;
+          if (consecutive429Songs >= SWITCH_THRESHOLD) {
+            const canContinue = await switchToNextApp();
+            if (!canContinue) {
+              clearInterval(progressInterval);
+              saveProgress(outputPath, existingProgress);
+              console.error(`\n💾 Fortschritt gespeichert in: ${outputPath}`);
+              process.exit(1);
+            }
+          }
+        } else {
+          consecutive429Songs = 0;
+        }
 
         // Song im Output mit allen Feldern updaten
         if (!existingProgress[style]) existingProgress[style] = [];
