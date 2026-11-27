@@ -75,7 +75,7 @@ let activeParty = null;
 // Now-Playing-Cache: ein einziger Spotify-Aufruf, geteilt von allen Gästen
 let _nowPlayingCache = null;
 let _nowPlayingCacheTime = 0;
-const NOW_PLAYING_CACHE_MS = 10_000; // 10 Sekunden
+const NOW_PLAYING_CACHE_MS = 20_000; // 20 Sekunden
 
 async function getCachedPlaybackState() {
   const now = Date.now();
