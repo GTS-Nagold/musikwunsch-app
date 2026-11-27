@@ -172,7 +172,8 @@ class SpotifyClient {
         const resp = await axios.get('https://api.spotify.com/v1/me/player', { headers: await this._headers() });
         return resp.data || null;
       });
-    } catch {
+    } catch (err) {
+      console.warn(`⚠️ getPlaybackState Fehler: ${err.response?.status} – ${JSON.stringify(err.response?.data)}`);
       return null;
     }
   }
