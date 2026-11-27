@@ -626,6 +626,30 @@ app.get('/admin/wishes', requireAdmin, (req, res) => {
   res.json(list);
 });
 
+// Alle Ereignisse der Session: Wünsche + alle Bewertungen (chronologisch, neueste zuerst)
+app.get('/admin/events', requireAdmin, (req, res) => {
+  const events = [];
+
+  for (const h of wishHistory) {
+    events.push({ type: 'wish', timestamp: h.timestamp, name: h.name || 'Anonym', title: h.title, artist: h.artist });
+  }
+
+  for (const f of feedbackData) {
+    const hasDance = (f.chosenDances && f.chosenDances.length > 0) || (f.suggestedDances && f.suggestedDances.length > 0);
+    events.push({
+      type:    hasDance ? 'suggestion' : 'rating',
+      timestamp: f.timestamp,
+      title:   f.title,
+      artist:  f.artist,
+      rating:  f.rating,
+      dances:  f.chosenDances?.length ? f.chosenDances : f.suggestedDances
+    });
+  }
+
+  events.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+  res.json(events);
+});
+
 // ── Hilfsfunktion: Song in songsDb mit URI/Cover anreichern und speichern ──────
 function saveSongsDb() {
   try {

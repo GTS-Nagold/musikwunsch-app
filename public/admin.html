@@ -255,14 +255,15 @@
       </div>
     </div>
 
-    <!-- Musikwünsche-Liste -->
+    <!-- Ereignis-Feed (Wünsche + Bewertungen) -->
     <div class="card" id="wishes-card" style="display:none">
-      <h3>🎤 Musikwünsche</h3>
-      <p style="font-size:.82rem;color:#666;margin-bottom:1rem">Alle Wünsche dieser Party – wer hat was gewünscht.</p>
+      <h3>🎤 Ereignisse</h3>
+      <p style="font-size:.82rem;color:#666;margin-bottom:1rem">Alle Wünsche und Bewertungen dieser Session – wird automatisch aktualisiert.</p>
       <div id="wishes-list"></div>
       <div style="display:flex;gap:.5rem;margin-top:1rem;flex-wrap:wrap">
         <button class="btn btn-primary" style="font-size:.85rem" onclick="loadWishes()">🔄 Aktualisieren</button>
-        <a href="/admin/history.csv" class="btn" style="background:#e8eaf6;color:var(--blue);font-size:.85rem;text-decoration:none">⬇ CSV Export</a>
+        <button class="btn" style="background:#e8eaf6;color:var(--blue);font-size:.85rem" onclick="downloadCSV('/admin/history.csv','musikwunsch-history.csv')">⬇ Wünsche CSV</button>
+        <button class="btn" style="background:#e8eaf6;color:var(--blue);font-size:.85rem" onclick="downloadCSV('/admin/feedback.csv','musikwunsch-feedback.csv')">⬇ Feedback CSV</button>
       </div>
     </div>
 
@@ -273,7 +274,6 @@
       <div id="suggestions-list"></div>
       <div style="display:flex;gap:.5rem;margin-top:1rem;flex-wrap:wrap">
         <button class="btn btn-primary" style="font-size:.85rem" onclick="loadSuggestions()">🔄 Aktualisieren</button>
-        <a id="feedback-csv-link" href="/admin/feedback.csv" class="btn" style="background:#e8eaf6;color:var(--blue);font-size:.85rem;text-decoration:none">⬇ Feedback-CSV</a>
       </div>
     </div>
 
@@ -319,6 +319,7 @@ async function login() {
     document.getElementById('admin-panel').style.display = 'block';
     loadWishes();
     loadSuggestions();
+    startEventsAutoRefresh();
   } catch {
     toast('Falsches Passwort', 'error');
     ADMIN_PASSWORD = '';
@@ -510,28 +511,55 @@ function togglePreview(row, spotifyId) {
   row.after(wrapper);
 }
 
-// ── Musikwünsche-Liste ───────────────────────────────────────────────────────
+// ── CSV Download (mit Admin-Header) ─────────────────────────────────────────
+async function downloadCSV(path, filename) {
+  try {
+    const resp = await fetch(path, { headers: { 'x-admin-password': ADMIN_PASSWORD } });
+    if (!resp.ok) { toast('CSV-Download fehlgeschlagen: ' + resp.status, 'error'); return; }
+    const blob = await resp.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename; a.click();
+    URL.revokeObjectURL(url);
+  } catch (err) { toast(err.message, 'error'); }
+}
+
+// ── Ereignis-Feed (Wünsche + Bewertungen) ───────────────────────────────────
+const DANCE_LABELS_SHORT = { walzer:'Walzer', 'wiener-walzer':'Wr.Walzer', tango:'Tango', foxtrott:'Foxtrott', slowfox:'Slowfox', samba:'Samba', 'cha-cha':'Cha-Cha', rumba:'Rumba', jive:'Jive', discofox:'Discofox', bachata:'Bachata', salsa:'Salsa', 'lindy-hop':'Lindy Hop', blues:'Blues', boogie:'Boogie' };
+
 async function loadWishes() {
   const card = document.getElementById('wishes-card');
   const list = document.getElementById('wishes-list');
   card.style.display = 'block';
-  list.innerHTML = '<p style="font-size:.85rem;color:#888;padding:.5rem 0">Lade…</p>';
   try {
-    const wishes = await api('/admin/wishes');
-    if (!wishes.length) {
-      list.innerHTML = '<p style="font-size:.85rem;color:#888;text-align:center;padding:1rem 0">Noch keine Wünsche eingegangen.</p>';
+    const events = await api('/admin/events');
+    if (!events.length) {
+      list.innerHTML = '<p style="font-size:.85rem;color:#888;text-align:center;padding:1rem 0">Noch keine Ereignisse.</p>';
       return;
     }
     list.innerHTML = '';
-    wishes.forEach(w => {
+    events.forEach(e => {
       const row = document.createElement('div');
       row.className = 'wish-row';
-      const time = w.timestamp ? new Date(w.timestamp).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) : '–';
+      const time = e.timestamp ? new Date(e.timestamp).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) : '–';
+      let icon = '🎤', detail = '';
+      if (e.type === 'wish') {
+        icon = '🎤';
+        detail = `<div class="wish-name">${esc(e.name)}</div>`;
+      } else if (e.type === 'rating') {
+        icon = e.rating === 'up' ? '👍' : e.rating === 'down' ? '👎' : '💬';
+        detail = `<div class="wish-name" style="color:#888;font-size:.8rem">Gast-Feedback</div>`;
+      } else if (e.type === 'suggestion') {
+        icon = '💡';
+        const dances = (e.dances || []).map(d => DANCE_LABELS_SHORT[d] || d).join(', ');
+        detail = `<div class="wish-name" style="font-size:.8rem;color:#555">${esc(dances)}</div>`;
+      }
       row.innerHTML = `
-        <div class="wish-name">${esc(w.name)}</div>
+        <div style="font-size:1.2rem;width:1.8rem;text-align:center">${icon}</div>
+        ${detail}
         <div class="wish-song">
-          <strong>${esc(w.title)}</strong>
-          <span>${esc(w.artist || '–')}</span>
+          <strong>${esc(e.title)}</strong>
+          <span>${esc(e.artist || '–')}</span>
         </div>
         <div class="wish-time">${time}</div>
       `;
@@ -541,6 +569,16 @@ async function loadWishes() {
     list.innerHTML = '';
     toast(err.message, 'error');
   }
+}
+
+let eventsRefreshTimer = null;
+function startEventsAutoRefresh() {
+  if (eventsRefreshTimer) return;
+  eventsRefreshTimer = setInterval(() => loadWishes(), 10000);
+}
+function stopEventsAutoRefresh() {
+  clearInterval(eventsRefreshTimer);
+  eventsRefreshTimer = null;
 }
 
 async function approveSuggestion(row) {
